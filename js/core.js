@@ -16,6 +16,9 @@ const MENU = [
     ["bhilarwadi","Bhilarwadi vehicle in","⇄"],["gate","Vehicle In/ Out","⇄"],
     ["register","In-Out Register","☷"],["documents","Bhilarwadi Documents","▣"]
   ]},
+  {section:"ALLOTMENT", items:[
+    ["allotment-entry","Allotment Entry","＋"],["allotment-vehicles","Allotment Vehicles","▤"]
+  ]},
   {section:"DELIVERY", items:[
     ["delivery-entry","Delivery Entry","✓"],["delivered","Delivered Vehicles","✓"],["delivery-history","Delivery History","◷"]
   ]},
@@ -50,6 +53,7 @@ const PAGE_PERM = {
   "order-import":"import.order", "purchase-import":"import.purchase", "manual-purchase":"import.purchase", "sales-import":"import.sales", "delivery-import":"delivery.manage",
   "import-history":["import.order","import.purchase","import.sales"], "import-data":["import.order","import.purchase","import.sales"],
   bhilarwadi:"gate.inout", gate:"gate.inout", register:"gate.inout", "gate-pass":"gate.pass",
+  "allotment-entry":"vehicle.update", "allotment-vehicles":"vehicle.view",
   "delivery-entry":"delivery.manage", delivered:"delivery.manage", "delivery-history":"delivery.manage",
   users:"users.manage", "assign-roles":"users.manage", "user-status":"users.manage", audit:"users.manage",
   permissions:"permissions.manage",
@@ -60,7 +64,7 @@ MENU.find(g => g.section === "REPORTS").items.forEach(([id]) => { PAGE_PERM[id] 
 const DEFAULT_PERMS = {
   accounts: ["dashboard.view","vehicle.view","vehicle.update","import.order","import.purchase","import.sales",
              "gate.inout","gate.pass","delivery.manage","reports.view","value.view"],
-  "gate operator": ["gate.inout","gate.pass"],
+  "gate operator": ["dashboard.view","gate.inout","gate.pass"],
   "security guard": ["gate.inout"],
   viewer: ["dashboard.view","reports.view"],
   owner: ["dashboard.view","reports.view","value.view"]
@@ -72,7 +76,9 @@ const state = {
 };
 
 const ADMIN_ONLY = new Set(["data-manage","backup-restore"]);          // Destructive and backup tools: Admin role only
+function allotmentMenuEnabled(){ return typeof sysBool !== "undefined" ? sysBool("dashboard_show_allotment") : true; }
 function can(page){
+  if(["allotment-entry","allotment-vehicles"].includes(page) && !allotmentMenuEnabled()) return false;
   if(state.isAdmin) return true;
   if(ADMIN_ONLY.has(page)) return false;
   const need = PAGE_PERM[page];
@@ -191,6 +197,7 @@ function fmtCell(type, v){
 function statusClass(s){
   const k = String(s || "").toLowerCase();
   if(k.includes("cancel")) return "cancelled";
+  if(k.includes("allot")) return "allotment";
   if(k.includes("pending")) return "warn";
   if(k.includes("transit")) return "info";
   if(k.includes("tally") || /not[\s\-_\/]*deliver|undeliver/.test(k) || k.includes("bill") || k.includes("sales") || k.includes("sold")) return "purple";   // Tally Done
@@ -439,6 +446,7 @@ async function loadPermissions(){
     if(!r.error) codes = (r.data || []).map(x => x.permissions?.code).filter(Boolean);
   }
   if(!codes.length) codes = DEFAULT_PERMS[role] || DEFAULT_PERMS.viewer;
+  if(role === "gate operator" && !codes.includes("dashboard.view")) codes.push("dashboard.view");
   state.perms = new Set(codes);
 }
 function firstAllowedPage(){
@@ -448,7 +456,7 @@ function firstAllowedPage(){
 
 /* ---- Navigation ---------------------------------------------------------- */
 function renderNav(){
-  const groups = MENU.map(g => ({...g, items: g.items.filter(([id]) => can(id))})).filter(g => g.items.length);
+  const groups = MENU.map(g => ({...g, items:g.items.filter(([id]) => can(id))})).filter(g => g.items.length);
   $("nav").innerHTML = groups.map((group, gi) => {
     const key = "nav-open-" + group.section.replace(/\W+/g,"-").toLowerCase();
     const collapsible = group.collapsible !== false && group.items.length > 0;
@@ -507,11 +515,11 @@ async function loadPage(page){
   $("content").scrollTop = 0; window.scrollTo(0, 0);
   try {
     if(page === "dashboard") return await renderDashboard();
-    if(["vehicles","search","status"].includes(page)) return await renderVehicles(page);
+    if(["vehicles","search","status","allotment-vehicles"].includes(page)) return await renderVehicles(page);
     if(page === "timeline") return await renderTimeline();
     if(page === "documents") return await renderDocuments();
     if(["data-import","order-import","purchase-import","manual-purchase","sales-import","delivery-import","import-history","import-data"].includes(page)) return await renderImport(page);
-    if(["bhilarwadi","gate","gate-pass","register"].includes(page)) return await renderGate(page);
+    if(["bhilarwadi","gate","gate-pass","register","allotment-entry"].includes(page)) return await renderGate(page);
     if(["delivery-entry","delivered","delivery-history"].includes(page)) return await renderDelivery(page);
     if(page.endsWith("-report")) return await renderReport(page);
     return await renderAdmin(page);

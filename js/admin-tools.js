@@ -6,7 +6,7 @@
    import_configuration (per import type). Run ADMIN_DATA_TOOLS.sql once.
    ===================================================================== */
 const SETTING_DEFAULTS = {age_limit_1:"30", age_limit_2:"60", age_limit_3:"90", vehicle_page_size:"50", dashboard_recent_rows:"8",
-  imp_order_invoiced_to_transit:"true", imp_purchase_moves_pending:"true"};
+  imp_order_invoiced_to_transit:"true", imp_purchase_moves_pending:"true", dashboard_show_allotment:"true"};
 const SQL_TOOLS_HINT = "Run ADMIN_DATA_TOOLS.sql once in Supabase SQL Editor, then try again.";
 const nzv = v => { const t = String(v ?? "").trim(); return t === "" ? null : t; };
 const dbHint = err => /column|schema cache|does not exist/i.test(err?.message || "") ? ` ${SQL_TOOLS_HINT}` : /row-level|permission|policy/i.test(err?.message || "") ? " Only Admin can change this." : "";
@@ -99,15 +99,16 @@ function renderSettingsPage(page){
     ${field("age_limit_1","BUCKET 1 UP TO",sy.age_limit_1,'type="number" min="1" required')}${field("age_limit_2","BUCKET 2 UP TO",sy.age_limit_2,'type="number" min="2" required')}${field("age_limit_3","BUCKET 3 UP TO",sy.age_limit_3,'type="number" min="3" required')}
     <div><label for="vehicle_page_size">VEHICLE STOCK ROWS PER PAGE</label><select id="vehicle_page_size" name="vehicle_page_size" ${dis}>${[25,50,100,200].map(n => `<option ${String(n) === String(sy.vehicle_page_size) ? "selected" : ""}>${n}</option>`).join("")}</select></div>
     ${field("dashboard_recent_rows","DASHBOARD: RECENT MOVEMENTS SHOWN",sy.dashboard_recent_rows,'type="number" min="3" max="30" required')}
+    <div class="full"><label class="check-row"><input type="checkbox" name="dashboard_show_allotment" ${sysBool("dashboard_show_allotment") ? "checked" : ""} ${dis}> Show Allotment on Dashboard</label><p class="form-help">When enabled, the dashboard shows vehicles whose status contains “Allotment”.</p></div>
     ${save}</form></div>`;
   $("setForm").addEventListener("submit", async e => {
-    e.preventDefault(); const f = Object.fromEntries(new FormData(e.target).entries()), btn = $("setSave");
+    e.preventDefault(); const fd = new FormData(e.target), f = Object.fromEntries(fd.entries()), btn = $("setSave");
     const a = +f.age_limit_1, b = +f.age_limit_2, d = +f.age_limit_3;
     if(!(a >= 1 && b > a && d > b)) return toast("Ageing limits must increase, e.g. 30 / 60 / 90.", "error");
     btn.disabled = true;
     try {
-      await saveSysSettings({age_limit_1:a, age_limit_2:b, age_limit_3:d, vehicle_page_size:f.vehicle_page_size, dashboard_recent_rows:Math.min(30, Math.max(3, +f.dashboard_recent_rows || 8))});
-      logAudit("UPDATE_SETTINGS","settings","system-settings",null,f); toast("System settings saved.","success");
+      await saveSysSettings({age_limit_1:a, age_limit_2:b, age_limit_3:d, vehicle_page_size:f.vehicle_page_size, dashboard_recent_rows:Math.min(30, Math.max(3, +f.dashboard_recent_rows || 8)), dashboard_show_allotment:fd.has("dashboard_show_allotment")});
+      renderNav(); logAudit("UPDATE_SETTINGS","settings","system-settings",null,f); toast("System settings saved.","success");
     } catch(err){ toast(err.message + dbHint(err), "error"); } finally { btn.disabled = false; }
   });
 }

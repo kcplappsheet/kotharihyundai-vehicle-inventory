@@ -132,6 +132,8 @@ create table if not exists public.vehicles (
   order_status text,
   customer_id text,
   customer_name text,
+  allotment_customer_name text,
+  allotment_date date,
   main_dealer text,
   dealer_code text,
   hmi_invoice_date date,
@@ -405,16 +407,115 @@ select
 from public.vehicles v
 group by coalesce(nullif(trim(v.dealer_code),''),'Unknown');
 
+-- Keep legacy view columns in their original order; append new vehicle fields after them.
 create or replace view public.aging_report as
-select v.*, current_date - coalesce(v.purchase_date,v.order_date,current_date) as aging_days
+select
+  v.id,
+  v.created_at,
+  v.order_date,
+  v.order_no,
+  v.pis_no,
+  v.model,
+  v.variant,
+  v.color,
+  v.order_amount,
+  v.order_type,
+  v.assigned_date,
+  v.confirm_date,
+  v.vin,
+  v.order_status,
+  v.customer_id,
+  v.customer_name,
+  v.main_dealer,
+  v.dealer_code,
+  v.hmi_invoice_date,
+  v.hmi_invoice_no,
+  v.excise_invoice_no,
+  v.fsc,
+  v.variant_code,
+  v.engine_no,
+  v.finance_company,
+  v.departure_date,
+  v.lot_number,
+  v.transporter_name,
+  v.transporter_vehicle_no,
+  v.basic_price,
+  v.freight_insurance,
+  v.total_invoice_value,
+  v.igst_pct,
+  v.igst,
+  v.cgst_pct,
+  v.cgst,
+  v.sgst_pct,
+  v.sgst,
+  v.comp_cess_pct,
+  v.comp_cess,
+  v.tcs_pct,
+  v.tcs_value,
+  v.hmi_invoice_amount,
+  v.hsn_code,
+  v.emission_type,
+  v.quantity,
+  v.grn_no,
+  v.grn_date,
+  v.sale_tax,
+  v.fob_key,
+  v.chassis_no,
+  v.stock_value,
+  v.purchase_date,
+  v.status,
+  v.remarks,
+  v.vehicle_no,
+  v.delivery_date,
+  v.bill_date,
+  v.bill_no,
+  v.team_leader,
+  v.executive,
+  v.sales_location,
+  v.bill_amount,
+  v.sales_imported_at,
+  v.delivery_no,
+  v.delivery_location,
+  v.location_id,
+  current_date - coalesce(v.purchase_date,v.order_date,current_date) as aging_days,
+  v.allotment_customer_name,
+  v.allotment_date
 from public.vehicles v
 where lower(coalesce(v.status,'')) not like '%deliver%';
 
 create or replace view public.in_transit_report as
-select v.* from public.vehicles v where lower(coalesce(v.status,'')) like '%transit%';
+select
+  v.id, v.created_at, v.order_date, v.order_no, v.pis_no, v.model, v.variant,
+  v.color, v.order_amount, v.order_type, v.assigned_date, v.confirm_date, v.vin,
+  v.order_status, v.customer_id, v.customer_name, v.main_dealer, v.dealer_code,
+  v.hmi_invoice_date, v.hmi_invoice_no, v.excise_invoice_no, v.fsc, v.variant_code,
+  v.engine_no, v.finance_company, v.departure_date, v.lot_number, v.transporter_name,
+  v.transporter_vehicle_no, v.basic_price, v.freight_insurance, v.total_invoice_value,
+  v.igst_pct, v.igst, v.cgst_pct, v.cgst, v.sgst_pct, v.sgst, v.comp_cess_pct,
+  v.comp_cess, v.tcs_pct, v.tcs_value, v.hmi_invoice_amount, v.hsn_code,
+  v.emission_type, v.quantity, v.grn_no, v.grn_date, v.sale_tax, v.fob_key,
+  v.chassis_no, v.stock_value, v.purchase_date, v.status, v.remarks, v.vehicle_no,
+  v.delivery_date, v.bill_date, v.bill_no, v.team_leader, v.executive, v.sales_location,
+  v.bill_amount, v.sales_imported_at, v.delivery_no, v.delivery_location, v.location_id,
+  v.allotment_customer_name, v.allotment_date
+from public.vehicles v where lower(coalesce(v.status,'')) like '%transit%';
 
 create or replace view public.pending_order_report as
-select v.* from public.vehicles v where lower(coalesce(v.status,'')) like '%pending%';
+select
+  v.id, v.created_at, v.order_date, v.order_no, v.pis_no, v.model, v.variant,
+  v.color, v.order_amount, v.order_type, v.assigned_date, v.confirm_date, v.vin,
+  v.order_status, v.customer_id, v.customer_name, v.main_dealer, v.dealer_code,
+  v.hmi_invoice_date, v.hmi_invoice_no, v.excise_invoice_no, v.fsc, v.variant_code,
+  v.engine_no, v.finance_company, v.departure_date, v.lot_number, v.transporter_name,
+  v.transporter_vehicle_no, v.basic_price, v.freight_insurance, v.total_invoice_value,
+  v.igst_pct, v.igst, v.cgst_pct, v.cgst, v.sgst_pct, v.sgst, v.comp_cess_pct,
+  v.comp_cess, v.tcs_pct, v.tcs_value, v.hmi_invoice_amount, v.hsn_code,
+  v.emission_type, v.quantity, v.grn_no, v.grn_date, v.sale_tax, v.fob_key,
+  v.chassis_no, v.stock_value, v.purchase_date, v.status, v.remarks, v.vehicle_no,
+  v.delivery_date, v.bill_date, v.bill_no, v.team_leader, v.executive, v.sales_location,
+  v.bill_amount, v.sales_imported_at, v.delivery_no, v.delivery_location, v.location_id,
+  v.allotment_customer_name, v.allotment_date
+from public.vehicles v where lower(coalesce(v.status,'')) like '%pending%';
 
 create or replace view public.delivery_report as
 select
@@ -595,6 +696,8 @@ BEGIN
     ('order_status','text'),
     ('customer_id','text'),
     ('customer_name','text'),
+    ('allotment_customer_name','text'),
+    ('allotment_date','date'),
     ('main_dealer','text'),
     ('dealer_code','text'),
     ('hmi_invoice_date','date'),
@@ -954,6 +1057,14 @@ CROSS JOIN public.permissions p
 WHERE lower(trim(r.name)) = 'admin'
 ON CONFLICT(role_id, permission_id) DO NOTHING;
 
+INSERT INTO public.role_permissions(role_id, permission_id)
+SELECT r.id, p.id
+FROM public.roles r
+CROSS JOIN public.permissions p
+WHERE lower(trim(r.name)) = 'gate operator'
+  AND p.code = 'dashboard.view'
+ON CONFLICT(role_id, permission_id) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS public.company_settings (
   id integer PRIMARY KEY DEFAULT 1,
   company_name text,
@@ -1025,8 +1136,11 @@ DROP POLICY IF EXISTS system_settings_admin_all ON public.system_settings;
 CREATE POLICY system_settings_admin_all ON public.system_settings FOR ALL TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
 DROP POLICY IF EXISTS audit_logs_admin_read ON public.audit_logs;
 CREATE POLICY audit_logs_admin_read ON public.audit_logs FOR SELECT TO authenticated USING (public.is_admin());
+DROP POLICY IF EXISTS audit_logs_admin_delete ON public.audit_logs;
+CREATE POLICY audit_logs_admin_delete ON public.audit_logs FOR DELETE TO authenticated USING (public.is_admin());
 
 GRANT SELECT ON public.permissions, public.role_permissions, public.company_settings, public.import_configuration, public.system_settings, public.audit_logs TO authenticated;
+GRANT DELETE ON public.audit_logs TO authenticated;
 GRANT INSERT,UPDATE,DELETE ON public.role_permissions, public.company_settings, public.import_configuration, public.system_settings TO authenticated;
 
 

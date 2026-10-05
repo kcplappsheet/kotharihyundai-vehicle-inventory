@@ -442,6 +442,10 @@ th[data-sort-direction="desc"]::after{content:" \25BC";font-size:9px;color:#0b63
 .dashboard-summary [data-stat="bill"]{grid-column:5 / span 2;grid-row:2}
 .dashboard-summary [data-stat="delivered"]{grid-column:7 / span 2;grid-row:2}
 .dashboard-summary [data-stat="arriving"]{grid-column:9 / span 2;grid-row:2}
+.dashboard-with-allotment [data-stat="allotment"]{grid-column:5 / span 2;grid-row:2}
+.dashboard-with-allotment [data-stat="bill"]{grid-column:7 / span 2;grid-row:2}
+.dashboard-with-allotment [data-stat="delivered"]{grid-column:9 / span 2;grid-row:2}
+.dashboard-with-allotment [data-stat="arriving"]{grid-column:5 / span 2;grid-row:3}
 .dashboard-summary [data-stat="total"] .stat-title{font-size:16px;margin-bottom:6px;font-weight:800;color:#1e3a5f}
 .dashboard-summary [data-stat="total"] .total-stock-chart{min-height:135px}
 .dashboard-summary .dashboard-status-card{position:relative;display:grid;grid-template-columns:38px minmax(0,1fr);grid-template-rows:auto auto auto;align-content:center;align-items:center;column-gap:10px;min-height:105px;padding:12px 14px;text-align:left;overflow:hidden;border-radius:16px}
@@ -455,6 +459,7 @@ th[data-sort-direction="desc"]::after{content:" \25BC";font-size:9px;color:#0b63
 .dashboard-summary .status-transit{--status-accent:#f79009;--status-text:#b54708;background:linear-gradient(135deg,#fff1d6,#fff8eb);border-color:#f9d27d}
 .dashboard-summary .status-pending{--status-accent:#f04438;--status-text:#b42318;background:linear-gradient(135deg,#ffebe9,#fff3f2);border-color:#fec5c0}
 .dashboard-summary .status-bill{--status-accent:#7a5af8;--status-text:#5925dc;background:linear-gradient(135deg,#efe7ff,#f6f1ff);border-color:#d3c0ff}
+.dashboard-summary .status-allotment{--status-accent:#db2777;--status-text:#9d174d;background:linear-gradient(135deg,#fce7f3,#fff1f7);border-color:#f9a8d4}
 .dashboard-summary .status-delivered{--status-accent:#06a6a6;--status-text:#087e8b;background:linear-gradient(135deg,#dffdfd,#f0fdfa);border-color:#a6f3f5}
 .dashboard-summary .status-arriving{--status-accent:#1570ef;--status-text:#175cd3;background:linear-gradient(135deg,#e0ecff,#f2f7ff);border-color:#bfd9ff}
 .dashboard-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}
@@ -581,6 +586,7 @@ th[data-sort-direction="desc"]::after{content:" \25BC";font-size:9px;color:#0b63
 .badge.warn{background:#ffe0de;color:#b42318}
 .badge.info{background:#ffedcc;color:#b54708}
 .badge.purple{background:#e9ddff;color:#5925dc}
+.badge.allotment{background:#fce7f3;color:#9d174d}
 .badge.stock{background:#dcfae6;color:#067647}
 .badge.cancelled,.badge.neutral{background:#f2f4f7;color:#475467}
 @media(max-width:1100px){
@@ -588,7 +594,7 @@ th[data-sort-direction="desc"]::after{content:" \25BC";font-size:9px;color:#0b63
   .dashboard-grid>.panel{grid-column:1}
   .dashboard-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
   .dashboard-summary [data-stat="total"]{grid-column:1 / -1;grid-row:auto;min-height:210px}
-  .dashboard-summary [data-stat="stock"],.dashboard-summary [data-stat="transit"],.dashboard-summary [data-stat="pending"],.dashboard-summary [data-stat="bill"],.dashboard-summary [data-stat="delivered"],.dashboard-summary [data-stat="arriving"]{grid-column:auto;grid-row:auto}
+  .dashboard-summary [data-stat="stock"],.dashboard-summary [data-stat="transit"],.dashboard-summary [data-stat="pending"],.dashboard-summary [data-stat="bill"],.dashboard-summary [data-stat="allotment"],.dashboard-summary [data-stat="delivered"],.dashboard-summary [data-stat="arriving"]{grid-column:auto;grid-row:auto}
 }
 @media(max-width:650px){
   .dashboard-age-panel .age-cards{grid-template-columns:repeat(2,minmax(0,1fr))}

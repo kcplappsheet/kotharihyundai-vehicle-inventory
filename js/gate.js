@@ -73,6 +73,7 @@ async function latestGateMovement(vin){
 }
 
 async function renderGate(page){
+  if(page === "allotment-entry") return renderAllotmentEntry();
   if(page === "register") return renderGateRegister();
   if(page === "gate-pass") return renderGatePass();
   const isBhilarwadi = page === "bhilarwadi";
@@ -140,6 +141,126 @@ async function renderGate(page){
   bindGateIn();
   if(state.isAdmin) initBulk(gateName, showDriver);
   return loadRecentGateMovements();
+}
+
+let ALLOTMENT_VEHICLE = null;
+function renderAllotmentEntry(){
+  $("content").innerHTML = `<div class="panel">
+    <div class="panel-head"><h3>Allotment Entry</h3></div>
+    <p class="form-help">Enter the Chassis No. / VIN and press <b>Fetch</b> (or Enter). Purchase details are fetched automatically. Enter the Allotment Customer Name and Allotment Date.</p>
+    <form id="allotmentForm" class="form-grid">
+      <div class="full"><label for="allotmentVin">CHASSIS NO. / VIN *</label><div class="searchbox" style="max-width:none">
+        <input id="allotmentVin" type="search" autocomplete="off" maxlength="17" placeholder="VIN or last 6 digits" aria-label="Chassis No. / VIN" required>
+        <button class="primary-btn" type="button" id="allotmentFetch">Fetch</button>
+      </div><div id="allotmentInfo" class="form-help"></div></div>
+      <div class="full"><h4>Purchase Details</h4></div>
+      ${IMPORT_COLUMNS.PURCHASE.map(key => {
+        const label = DELIVERY_COLUMN_LABELS[key] || FIELD_HEADING[key] || key;
+        const type = FIELD_TYPE[key] || "text";
+        return `<div><label for="allotmentDetail_${esc(key)}">${esc(label)} <small style="font-weight:400;color:#98a2b3">(Purchase report)</small></label>
+          <input id="allotmentDetail_${esc(key)}" type="${type === "date" ? "date" : "text"}" readonly></div>`;
+      }).join("")}
+      <div><label for="allotmentCustomerName">Allotment Customer Name *</label><input id="allotmentCustomerName" type="text" maxlength="200" required autocomplete="off"></div>
+      <div><label for="allotmentDate">Allotment Date *</label><input id="allotmentDate" type="date" required value="${todayLocal()}"></div>
+      <div class="full form-actions"><button class="primary-btn" type="submit" id="confirmAllotment" disabled>Save Allotment</button></div>
+    </form>
+  </div>`;
+  $("allotmentForm").addEventListener("submit", event => {
+    event.preventDefault();
+    if(event.submitter?.id === "confirmAllotment"){
+      if(ALLOTMENT_VEHICLE) void saveAllotment(ALLOTMENT_VEHICLE);
+      return;
+    }
+    void searchAllotmentVehicle();
+  });
+  $("allotmentFetch").addEventListener("click", () => searchAllotmentVehicle());
+  let lookupTimer;
+  $("allotmentVin").addEventListener("input", () => {
+    clearTimeout(lookupTimer);
+    const term = cleanQuery($("allotmentVin").value).replace(/\s+/g,"");
+    ALLOTMENT_VEHICLE = null;
+    $("confirmAllotment").disabled = true;
+    $("allotmentInfo").textContent = "";
+    IMPORT_COLUMNS.PURCHASE.forEach(key => { $("allotmentDetail_" + key).value = ""; });
+    $("allotmentCustomerName").value = "";
+    if(term.length < 6) return;
+    lookupTimer = setTimeout(() => searchAllotmentVehicle(), 350);
+  });
+}
+
+async function searchAllotmentVehicle(event){
+  event?.preventDefault();
+  const term = cleanQuery($("allotmentVin").value).replace(/\s+/g,"").toUpperCase();
+  const info = $("allotmentInfo");
+  const saveButton = $("confirmAllotment");
+  if(term.length < 6){ info.textContent = "Enter a full Chassis No. / VIN or at least its last 6 digits."; return; }
+  ALLOTMENT_VEHICLE = null;
+  saveButton.disabled = true;
+  info.style.color = "";
+  info.textContent = "Fetching vehicle and Purchase details...";
+  try {
+    let query = state.supabase.from("vehicles").select("*");
+    query = term.length >= 17 ? query.eq("vin",term) : query.ilike("vin",`%${term.slice(-6)}`);
+    const response = await query.limit(3);
+    if(response.error) throw response.error;
+    const matches = response.data || [];
+    if(!matches.length){ info.textContent = "No accessible vehicle matched that Chassis No. / VIN."; return; }
+    if(matches.length > 1){ info.textContent = "More than one vehicle matched. Enter the full VIN."; return; }
+    const vehicle = matches[0];
+    if(isAllotmentVehicle(vehicle)){ info.textContent = "This vehicle is already allotted."; return; }
+    if(vStage(vehicle) !== "stock"){ info.textContent = "Only Free Stock vehicles can be allotted."; return; }
+    if(cleanQuery($("allotmentVin").value).replace(/\s+/g,"").toUpperCase() !== term) return;
+    IMPORT_COLUMNS.PURCHASE.forEach(key => {
+      const value = vehicle[key] ?? "";
+      $("allotmentDetail_" + key).value = FIELD_TYPE[key] === "date" && value ? String(value).slice(0,10) : value;
+    });
+    $("allotmentVin").value = vehicle.vin || term;
+    $("allotmentCustomerName").value = vehicle.customer_name || "";
+    ALLOTMENT_VEHICLE = vehicle;
+    info.textContent = `Purchase details loaded · Status: ${vehicle.status || "-"}`;
+    saveButton.disabled = false;
+  } catch(err){
+    info.textContent = "Vehicle search failed: " + (err.message || err);
+    info.style.color = "#b42318";
+  }
+}
+
+async function saveAllotment(vehicle){
+  const button = $("confirmAllotment");
+  if(!button || !vehicle) return;
+  const form = $("allotmentForm");
+  if(!form.reportValidity()) return;
+  const customerName = $("allotmentCustomerName");
+  const allotmentDate = $("allotmentDate");
+  button.disabled = true;
+  try {
+    const allotment = {
+      status:"Allotment",
+      allotment_customer_name:customerName.value.trim(),
+      allotment_date:allotmentDate.value
+    };
+    let update = state.supabase.from("vehicles").update(allotment).eq("id",vehicle.id);
+    update = vehicle.status == null ? update.is("status",null) : update.eq("status",vehicle.status);
+    const response = await update.select("id");
+    if(response.error) throw response.error;
+    if(!response.data?.length){
+      toast("Allotment was not saved. The vehicle status changed or you do not have access.","error");
+      button.disabled = false;
+      return;
+    }
+    VCACHE.rows = null;
+    logAudit("CREATE_ALLOTMENT","vehicle","vehicles",vehicle.id,{vin:vehicle.vin,...allotment});
+    toast("Vehicle marked as Allotment.","success");
+    ALLOTMENT_VEHICLE = null;
+    $("allotmentForm").reset();
+    $("allotmentDate").value = todayLocal();
+    IMPORT_COLUMNS.PURCHASE.forEach(key => { $("allotmentDetail_" + key).value = ""; });
+    $("allotmentInfo").textContent = "Allotment saved. Enter another Chassis No. / VIN.";
+  } catch(err){
+    button.disabled = false;
+    const message = err.message || err;
+    toast("Allotment could not be saved: " + message + (/allotment_customer_name|allotment_date|schema cache/i.test(String(message)) ? " Run the updated database.sql in Supabase SQL Editor, then retry." : ""),"error");
+  }
 }
 
 function gateFiltersHtml(){

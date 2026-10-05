@@ -26,8 +26,22 @@ async function renderAdmin(page){
   if(page === "permissions") return renderPermissions();
   if(page === "audit"){
     const r = await sb.from("audit_logs").select("*").order("created_at",{ascending:false}).limit(200);
-    c.innerHTML = `<div class="panel">${head("Audit Logs")}<div class="table-wrap">${r.error ? emptyState(r.error.message) :
+    c.innerHTML = `<div class="panel"><div class="panel-head"><h3>Audit Logs</h3><button type="button" class="secondary-btn" id="clearAuditLogs" ${r.error ? "disabled" : ""}>Clear Logs</button></div><div class="table-wrap">${r.error ? emptyState(r.error.message) :
       table(["Time","User","Action","Module","Entity","Details"], (r.data||[]).map(x => [fmtDT(x.created_at),x.actor_username,x.action,x.module,x.entity_type,x.details]))}</div></div>`;
+    $("clearAuditLogs").addEventListener("click", async event => {
+      if(!confirm("Clear all Audit Logs? This permanently deletes every log entry and cannot be undone.")) return;
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        const deleted = await sb.from("audit_logs").delete().not("id","is",null).select("id");
+        if(deleted.error) throw deleted.error;
+        toast(`${deleted.data?.length || 0} audit log entries cleared.`,"success");
+        await renderAdmin("audit");
+      } catch(err){
+        button.disabled = false;
+        toast("Could not clear Audit Logs: " + (err.message || err),"error");
+      }
+    });
     return;
   }
   if(page === "locations") return renderLocationsAdmin();
@@ -51,8 +65,15 @@ async function createUser(e){
     const res = await fetch(`${SUPABASE_CONFIG.url}/functions/v1/create-user`, {method:"POST",
       headers:{"Content-Type":"application/json", "Authorization":`Bearer ${session.access_token}`, "apikey":SUPABASE_CONFIG.anonKey},
       body:JSON.stringify({username:normalizeUsername(f.username), full_name:f.full_name.trim(), email:f.email.trim().toLowerCase(), password:f.password, role_id:f.role_id, location_id:locationId||null, all_locations:allLocations, active:f.active==="true"})});
-    const out = await res.json().catch(() => ({}));
-    if(!res.ok) return say(out.error || "Unable to create user.","error");
+    const responseText = await res.text();
+    let out = {};
+    try { out = responseText ? JSON.parse(responseText) : {}; }
+    catch { out = {}; }
+    if(!res.ok){
+      const detail = out.error || out.message || responseText.trim();
+      const safeDetail = String(detail || res.statusText || "No error details returned.").slice(0,500);
+      return say(`User creation failed (HTTP ${res.status}): ${safeDetail}`,"error");
+    }
     
     const createdId = out.user?.id;
     if(createdId){
@@ -60,7 +81,9 @@ async function createUser(e){
       if(savePwd.error) console.warn("Password display could not be saved:", savePwd.error.message);
     }
     say(`User ${out.user?.username || f.username} created.`,"success"); toast("User created.","success"); e.target.reset(); logAudit("CREATE_USER","users","user",out.user?.id,{username:f.username}); loadUsers();
-  } catch { say("Cannot reach the create-user function. Is it deployed?","error"); }
+  } catch(err){
+    say("Cannot reach the create-user function: " + (err.message || err) + ". Check that it is deployed and that the network is available.","error");
+  }
 }
 async function loadUsers(){
   if(!$("usersTable")) return;
@@ -172,20 +195,20 @@ async function renderPermissions(){
     grantsByRole.get(x.role_id).add(x.permission_id);
   });
   const allRoles = roles.data || [];
-  const editable = allRoles.filter(r => String(r.name).trim().toLowerCase() !== "admin");
+  const visibleRoles = allRoles.filter(r => String(r.name).trim().toLowerCase() !== "admin");
+  const editable = visibleRoles;
   const defaultsForRole = role => DEFAULT_PERMS[String(role.name).toLowerCase()] || DEFAULT_PERMS.viewer;
   const roleHasPermission = (role, permission) => {
     if(String(role.name).trim().toLowerCase() === "admin") return true;
+    if(String(role.name).trim().toLowerCase() === "gate operator" && permission.code === "dashboard.view") return true;
     const grants = grantsByRole.get(role.id);
     if(grants?.size) return grants.has(permission.id);
     return defaultsForRole(role).includes(permission.code);
   };
-  $("content").innerHTML = `<div class="panel"><div class="panel-head"><h3>Permissions</h3></div><p class="form-help">Admin always has full access. Tick to allow; changes save instantly.</p><div class="table-wrap"><table><thead><tr><th>Permission</th>${allRoles.map(r => `<th>${esc(r.name)}</th>`).join("")}</tr></thead><tbody>${
-    (perms.data||[]).map(p => `<tr><td title="${esc(p.description||"")}">${esc(p.code)}</td>${allRoles.map(r => {
+  $("content").innerHTML = `<div class="panel"><div class="panel-head"><h3>Permissions</h3></div><p class="form-help">Admin always has full access. Tick to allow; changes save instantly.</p><div class="table-wrap"><table><thead><tr><th>Permission</th>${visibleRoles.map(r => `<th>${esc(r.name)}</th>`).join("")}</tr></thead><tbody>${
+    (perms.data||[]).map(p => `<tr><td title="${esc(p.description||"")}">${esc(p.code)}</td>${visibleRoles.map(r => {
       const checked = roleHasPermission(r,p) ? "checked" : "";
-      return String(r.name).trim().toLowerCase() === "admin"
-        ? `<td><input type="checkbox" checked disabled aria-label="Admin always has ${esc(p.code)}"></td>`
-        : `<td><input type="checkbox" data-r="${esc(r.id)}" data-p="${esc(p.id)}" ${checked}></td>`;
+      return `<td><input type="checkbox" data-r="${esc(r.id)}" data-p="${esc(p.id)}" ${checked}></td>`;
     }).join("")}</tr>`).join("")}</tbody></table></div></div>`;
   $("content").querySelectorAll("input[data-r]").forEach(cb => cb.addEventListener("change", async () => {
     const role = editable.find(r => r.id === cb.dataset.r), permission = (perms.data||[]).find(p => p.id === cb.dataset.p);

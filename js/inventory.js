@@ -32,6 +32,7 @@ const REPORTS = {
 /* ---------------------------------------------------------------- Dashboard */
 const vAmt = v => vValue(v) || Number(v.order_amount || 0);            // Pending Order rows carry the order amount
 const STAGES = [["stock","Free Stock"],["transit","In Transit"],["pending","Pending Order"],["bill","Tally Done"],["delivered","Delivered"]];
+const isAllotmentVehicle = v => /allot/i.test(String(v.status || ""));
 const emptyStageSet = () => ({stock:0, transit:0, pending:0, bill:0, delivered:0, cancelled:0, total:0});
 function stageGroup(all, keyOf){          // per key: n = counts, v = values, split by stage
   const m = new Map();
@@ -51,9 +52,10 @@ const dimNum = (n, dim, key, stage) => n ? raw(`<button type="button" class="lin
 const B = t => raw(`<b>${esc(String(t))}</b>`), N = t => B(Number(t).toLocaleString("en-IN")), MS = t => B(moneyShort(t));
 const dashboardFilters = () => ({from:$("dashDateFrom")?.value || "", to:$("dashDateTo")?.value || "", location:$("dashLocation")?.value || ""});
 function dashboardAssignedLocation(){
-  if(state.isAdmin || state.profile?.all_locations) return null;
+  if(state.isAdmin) return null;
   const id = state.profile?.location_id;
-  return id ? (state.locations || []).find(l => String(l.id) === String(id))?.location_name || "" : "";
+  if(id) return (state.locations || []).find(l => String(l.id) === String(id))?.location_name || "";
+  return state.profile?.all_locations ? null : "";
 }
 function dashboardMatchesVehicle(v){
   const f = dashboardFilters(), loc = vLocName(v);
@@ -70,6 +72,8 @@ function dashboardMatchesVehicle(v){
 
 function renderDashboard(){
   const stats = [["Total Order Stock","stat0","total"],["Free Stock","stat1","stock","🚘"],["In Transit","stat2","transit","🚚"],["Pending Order","stat3","pending","▤"],["Tally Done","stat4","bill","▣"],["Delivered","stat5","delivered","✓"],["Arriving","stat7","arriving","↗"]];
+  const showAllotment = sysBool("dashboard_show_allotment");
+  if(showAllotment) stats.splice(4, 0, ["Allotment","stat8","allotment","◆"]);
   const link = (page, label) => `<button class="secondary-btn" type="button" onclick="navigate('${page}')" ${can(page) ? "" : "hidden"}>${label}</button>`;
   $("content").innerHTML = `
   <div class="dashboard-page">
@@ -78,7 +82,7 @@ function renderDashboard(){
     <label class="dashboard-filter-field">TO DATE<input id="dashDateTo" type="date"></label>
     <label class="dashboard-filter-field">LOCATION<select id="dashLocation"><option value="">All Locations</option></select></label>
   </div>
-  <div class="cards dashboard-cards dashboard-summary">
+  <div class="cards dashboard-cards dashboard-summary${showAllotment ? " dashboard-with-allotment" : ""}">
     ${stats.map(([x,id,kind,icon]) => `<button type="button" class="stat-card stat-card-button${kind === "total" ? " total-stock-card" : ` dashboard-status-card status-${kind}`}" data-stat="${kind}" title="Click to view vehicles">${kind === "total" ? `<div class="stat-title">${x}</div><div class="total-stock-chart"><div class="total-stock-visual"><svg id="totalStockPie" viewBox="0 0 180 192" role="img" aria-label="Total order stock breakdown"></svg><div class="total-stock-center"><div class="stat-value" id="${id}">0</div><div class="stat-money" id="${id}v">₹ 0</div></div></div><div id="totalStockLegend" class="total-stock-legend"></div></div>` : `<span class="dashboard-status-icon" aria-hidden="true">${icon}</span><span class="stat-title">${x}</span><div class="dashboard-status-count"><div class="stat-value" id="${id}">0</div><span class="dashboard-stat-unit">Vehicles</span></div><div class="stat-money" id="${id}v">₹ 0</div>`}</button>`).join("")}
   </div>
   <div class="dashboard-grid">
@@ -152,7 +156,7 @@ async function loadDashboardData(){
   const box = id => $(id), fail = msg => ["financeDash","dealerDash","locationTable","locationChart","modelStockDash","deliveredModelChart","deliveredModelLocation","ageDash","modelDash","arrivingTable"].forEach(i => { if(box(i)) box(i).innerHTML = emptyState("Could not load: " + msg); });
   if(dashboardAssignedLocation() === ""){
     fail("No assigned location is available for this user. Contact Admin.");
-    ["stat0","stat1","stat2","stat3","stat4","stat5"].forEach(id => { if(box(id)) box(id).textContent = "—"; if(box(id + "v")) box(id + "v").textContent = "—"; });
+    ["stat0","stat1","stat2","stat3","stat4","stat5","stat8"].forEach(id => { if(box(id)) box(id).textContent = "—"; if(box(id + "v")) box(id + "v").textContent = "—"; });
     if(box("stat7")) box("stat7").textContent = "0";
     if(box("stat7v")) box("stat7v").textContent = moneyShort(0);
     if(box("arrivingTable")) box("arrivingTable").innerHTML = emptyState("No vehicles are awaiting arrival.");
@@ -161,12 +165,14 @@ async function loadDashboardData(){
   }
   if(allRes.error){ fail(allRes.error.message || allRes.error); }
   else {
-    const all = allRes.data.filter(dashboardMatchesVehicle), sum = {total:{n:0, v:0}};
+    const all = allRes.data.filter(dashboardMatchesVehicle), sum = {total:{n:0, v:0}, allotment:{n:0,v:0}};
     STAGES.forEach(([k]) => { sum[k] = {n:0, v:0}; });
     sum.cancelled = {n:0, v:0};
-    all.forEach(v => { const st = vStage(v), a = vAmt(v); sum[st].n++; sum[st].v += a; if(st !== "delivered" && st !== "cancelled"){ sum.total.n++; sum.total.v += a; } });
+    all.forEach(v => { const st = vStage(v), a = vAmt(v); sum[st].n++; sum[st].v += a; if(isAllotmentVehicle(v)){ sum.allotment.n++; sum.allotment.v += a; } if(st !== "delivered" && st !== "cancelled"){ sum.total.n++; sum.total.v += a; } });
     [["total","stat0"],["stock","stat1"],["transit","stat2"],["pending","stat3"],["bill","stat4"],["delivered","stat5"]].forEach(([k,id]) => {
       if(box(id)) box(id).textContent = sum[k].n.toLocaleString("en-IN"); if(box(id + "v")) box(id + "v").textContent = moneyShort(sum[k].v); });
+    if(box("stat8")) box("stat8").textContent = sum.allotment.n.toLocaleString("en-IN");
+    if(box("stat8v")) box("stat8v").textContent = moneyShort(sum.allotment.v);
     const totalPie = totalStockPieHtml([["stock","Free Stock"],["transit","In Transit"],["pending","Pending Order"],["bill","Tally Done"]].map(([key,label]) => ({label,count:sum[key].n,value:sum[key].v})));
     if(box("totalStockPie")) box("totalStockPie").innerHTML = totalPie.svg;
     if(box("totalStockLegend")) box("totalStockLegend").innerHTML = totalPie.legend;
@@ -382,6 +388,7 @@ const DASH_KIND = {
   transit:{title:"In Transit", f:v => vStage(v) === "transit"},
   pending:{title:"Pending Order", f:v => vStage(v) === "pending"},
   bill:{title:"Tally Done", f:v => vStage(v) === "bill"},
+  allotment:{title:"Allotment", f:isAllotmentVehicle},
   delivered:{title:"Delivered", f:v => vStage(v) === "delivered"}
 };
 async function openStatModal(kind){
@@ -468,6 +475,7 @@ const VEH = {page:0, size:50, total:0, q:"", status:"", pageType:"vehicles", row
 async function renderVehicles(page){
   VEH.page = 0; VEH.q = ""; VEH.status = ""; VEH.pageType = page; VEH.size = pageSize();
   const useStatusButtons = ["status","vehicles"].includes(page);
+  const allotmentOnly = page === "allotment-vehicles";
   $("content").innerHTML = `
   <div class="toolbar">
     <div class="searchbox${["search","vehicles"].includes(page) ? " vehicle-searchbox" : ""}">
@@ -475,9 +483,9 @@ async function renderVehicles(page){
       ${["search","vehicles"].includes(page) ? `<button type="button" id="vehicleScan" class="secondary-btn" title="Scan VIN barcode"><span class="vehicle-scan-icon" aria-hidden="true">📷</span><span>Scan</span></button>` : ""}
       <button type="button" id="vehicleSearchBtn">Search</button>
     </div>
-    <div class="toolbar-actions">${useStatusButtons ? "" : filterBtn("vehFilter")}<button class="secondary-btn" type="button" id="vehicleExport">⤓ Export</button></div>
+    <div class="toolbar-actions">${useStatusButtons || allotmentOnly ? "" : filterBtn("vehFilter")}<button class="secondary-btn" type="button" id="vehicleExport">⤓ Export</button></div>
   </div>
-  ${useStatusButtons ? `<div class="status-filter-bar" id="vehicleStatusButtons"><button type="button" class="tab-btn status-filter-btn active" data-status="">All status</button></div>` : filterPanel("vehFilter", `<div class="filter-grid"><label>Status<select id="vehicleStatus" aria-label="Filter by status"><option value="">All status</option></select></label></div>`)}
+  ${allotmentOnly ? "" : useStatusButtons ? `<div class="status-filter-bar" id="vehicleStatusButtons"><button type="button" class="tab-btn status-filter-btn active" data-status="">All status</button></div>` : filterPanel("vehFilter", `<div class="filter-grid"><label>Status<select id="vehicleStatus" aria-label="Filter by status"><option value="">All status</option></select></label></div>`)}
   <div class="panel"><div class="table-wrap" id="vehicleResults">${emptyState(page === "search" ? "Enter a VIN No. / model to search." : "Loading vehicles...")}</div><div class="pager" id="vehiclePager"></div></div>
   <div id="modal"></div>`;
 
@@ -492,7 +500,7 @@ async function renderVehicles(page){
   $("vehicleExport").addEventListener("click", exportVehicles);
 
   if(!state.supabase) return;
-  getStatusSummary().then(groups => {
+  if(!allotmentOnly) getStatusSummary().then(groups => {
     const statusButtons = $("vehicleStatusButtons");
     if(statusButtons){
       const total = groups.reduce((n,g) => n + g.count, 0);
@@ -516,7 +524,8 @@ async function queryVehicles(){
     .select("*", {count:"exact"})
     .order("id",{ascending:false}).range(from, from + VEH.size - 1);
   if(VEH.q) query = query.or(["vin","order_no","engine_no","model","color"].map(c => `${c}.ilike.%${VEH.q}%`).join(","));
-  if(VEH.status) query = query.eq("status", VEH.status);
+  if(VEH.pageType === "allotment-vehicles") query = query.ilike("status","%allot%");
+  else if(VEH.status) query = query.eq("status", VEH.status);
   const {data, error, count} = await query;
   if(error){ box.innerHTML = emptyState(error.message); return; }
   VEH.rows = data || []; VEH.total = count ?? VEH.rows.length;
@@ -685,7 +694,7 @@ async function loadTimeline(){
 /* Delivery Entry / Delivered Vehicles / Delivery History: see js/delivery.js */
 
 /* ---------------------------------------------------------------- Reports */
-const REPORT = {key:"", rows:[]};
+const REPORT = {key:"", rows:[], location:null};
 
 function reportRows(def, rows, filter){
   const f = filter.trim().toLowerCase();
@@ -706,7 +715,8 @@ function drawReport(){
       el.querySelectorAll("[data-dim]").forEach(b => b.addEventListener("click", () => openDimModal(b.dataset.dim, b.dataset.key, b.dataset.stage)));
       el.querySelectorAll("[data-redit]").forEach(b => b.addEventListener("click", () => editVehicleById(b.dataset.redit, () => loadReport(REPORT.key))));
     }});
-  $("reportMeta").textContent = `${rows.length.toLocaleString("en-IN")} of ${REPORT.rows.length.toLocaleString("en-IN")} rows`;
+  const scope = REPORT.location ? ` · Assigned location: ${REPORT.location}` : "";
+  $("reportMeta").textContent = `${rows.length.toLocaleString("en-IN")} of ${REPORT.rows.length.toLocaleString("en-IN")} rows${scope}`;
 }
 // Opens the Edit Vehicle window for a vehicle id (Admin). after() runs after Save, back() after Cancel.
 async function editVehicleById(id, after, back){
@@ -736,7 +746,22 @@ async function loadReport(page){
   const def = REPORTS[page]; if(!def) return;
   if(!state.supabase){ $("reportTable").innerHTML = emptyState("Connect Supabase to load live report."); return; }
   try {
-    const rows = await computedRows(def.source);
+    await getLocations();
+    let assignedLocation = null;
+    if(!state.isAdmin && !state.profile?.all_locations){
+      const id = state.profile?.location_id;
+      assignedLocation = id
+        ? (state.locations || []).find(location => String(location.id) === String(id))?.location_name || ""
+        : "";
+    }
+    if(assignedLocation === ""){
+      REPORT.rows = [];
+      $("reportTable").innerHTML = emptyState("No assigned location is available for this user.");
+      $("reportMeta").textContent = "No assigned location is available for this user.";
+      return;
+    }
+    REPORT.location = assignedLocation;
+    const rows = await computedRows(def.source, assignedLocation);
     if(page === "finance-report"){
       REPORT.rows = rows.filter(r => r.stock_count + r.in_transit_count + r.bill_count > 0)
         .sort((a,b) => (b.stock_count + b.in_transit_count + b.bill_count) - (a.stock_count + a.in_transit_count + a.bill_count));

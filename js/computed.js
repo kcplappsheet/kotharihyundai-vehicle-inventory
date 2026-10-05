@@ -170,15 +170,25 @@ function awaitingArrivalRows(rows){
     };
   });
 }
-async function computedRows(source){
-  if(source === "gate_movement_report") return gateRowsFallback();
+async function computedRows(source, scopedLocation = null){
+  const matchesLocation = value => String(value || "").trim().toLowerCase() === String(scopedLocation || "").trim().toLowerCase();
+  if(source === "gate_movement_report"){
+    const rows = await gateRowsFallback();
+    return scopedLocation === null ? rows : rows.filter(row =>
+      [row.location_name,row.from_location,row.to_location].some(matchesLocation)
+    );
+  }
   if(source === "awaiting_arrival_report"){
     const rows = await gateRowsFallback();
     await getLocations();
-    return awaitingArrivalRows(rows);
+    const arrivals = awaitingArrivalRows(rows);
+    return scopedLocation === null ? arrivals : arrivals.filter(row =>
+      [row.in_location,row.out_location].some(matchesLocation)
+    );
   }
-  const all = await allVehicles();
+  const vehicles = await allVehicles();
   await getLocations();
+  const all = scopedLocation === null ? vehicles : vehicles.filter(v => vLocName(v) === scopedLocation);
   switch(source){
     case "dashboard_stock_summary": {
       const c = {stock:0, pending:0, transit:0, bill:0, delivered:0, cancelled:0}; all.forEach(v => c[vStage(v)]++);
