@@ -36,6 +36,19 @@ const SQL_HINT = "Database columns are missing. Run IMPORT_COLUMNS_FIX.sql once 
 let importRows = [];
 const importDropped = new Set();                              // columns the database does not have (skipped safely)
 
+function updateImportProgress(id, done, total, label){
+  const box = $(id);
+  if(!box) return;
+  const percent = total ? Math.min(100, Math.round(done / total * 100)) : 100;
+  box.hidden = false;
+  box.querySelector("[data-progress-label]").textContent = `${label} — ${done.toLocaleString("en-IN")} / ${total.toLocaleString("en-IN")} rows`;
+  box.querySelector("[data-progress-percent]").textContent = `${percent}%`;
+  box.querySelector("progress").value = percent;
+}
+function importProgressMarkup(id){
+  return `<div class="import-progress" id="${id}" hidden><div class="import-progress-head"><span data-progress-label></span><strong data-progress-percent>0%</strong></div><progress max="100" value="0" aria-label="Import progress"></progress></div>`;
+}
+
 function importNorm(h){ return String(h ?? "").toLowerCase().replace(/%/g," pct ").replace(/[^a-z0-9]+/g," ").trim(); }
 const IMPORT_HEADER_MAP = (() => {                            // normalised Excel header -> [db column, type]
   const m = new Map();
@@ -183,7 +196,7 @@ function renderBulkImportForm(target){
   target.innerHTML = `<div class="panel import-panel"><div class="panel-head"><h3>Bulk Import — Order, Purchase, Sales &amp; Delivery</h3></div>
     <p class="form-help">Upload the 4-sheet import template. Sheets are processed in Order → Purchase → Sales → Delivery sequence. Every sheet is required; rows without the required Order No. or VIN are skipped using the same rules as individual imports.</p>
     <div class="dropzone"><input id="bulkImportFile" type="file" accept=".xlsx,.xls"><div><button class="secondary-btn" id="bulkImportPreview" type="button">Preview Sheets</button> <button class="primary-btn" id="bulkImportGo" type="button" disabled>Import All Sheets</button></div></div>
-    <div id="bulkImportMsg" class="message"></div><div id="bulkImportPreviewBox" class="table-wrap"></div></div>`;
+    <div id="bulkImportMsg" class="message"></div>${importProgressMarkup("bulkImportProgress")}<div id="bulkImportPreviewBox" class="table-wrap"></div></div>`;
   $("bulkImportPreview").addEventListener("click", previewBulkImport);
   $("bulkImportGo").addEventListener("click", runBulkImport);
 }
@@ -238,13 +251,19 @@ async function runBulkImport(){
   msg.textContent = "Bulk import is running…";
   msg.className = "message";
   importIgnored = [];
+  const totalRows = bulkImportRows.reduce((sum, sheet) => sum + sheet.rows.length, 0);
+  let completedRows = 0;
+  updateImportProgress("bulkImportProgress",0,totalRows,"Starting bulk import");
   try {
     for(const sheet of bulkImportRows){
       if(sheet.errors.length) throw new Error(`${sheet.name}: ${sheet.errors.join(" ")}`);
       if(state.settings?.imp?.[sheet.key] === false && sheet.rows.length)
         throw new Error(`${sheet.name}: Import is turned off in Import Configuration.`);
       importDropped.clear();
-      const result = await importRunRows(sheet.key, sheet.rows);
+      const result = await importRunRows(sheet.key, sheet.rows, done => {
+        updateImportProgress("bulkImportProgress",completedRows + done,totalRows,`${sheet.name} import`);
+      });
+      completedRows += sheet.rows.length;
       results.push({sheet,result});
       try {
         await importWrite(payload => state.supabase.from("import_batches").insert(payload), {
@@ -256,6 +275,7 @@ async function runBulkImport(){
       if(typeof VCACHE !== "undefined") VCACHE.rows = null;
     }
   } catch(err){
+    $("bulkImportProgress").querySelector("[data-progress-label]").textContent = "Import stopped";
     msg.textContent = `Bulk import stopped: ${err.message || err}`;
     msg.className = "message error";
     $("bulkImportPreviewBox").insertAdjacentHTML("beforeend", table(["Sheet","Added","Updated","Failed","Ignored","First error"], results.map(({sheet,result}) => [
@@ -272,6 +292,7 @@ async function runBulkImport(){
   const ok = results.reduce((sum,item) => sum + item.result.added + item.result.updated,0);
   msg.textContent = `All four sheets processed: ${ok} added/updated, ${failed} failed. Check each sheet's result above.`;
   msg.className = `message ${failed ? "error" : "success"}`;
+  updateImportProgress("bulkImportProgress",totalRows,totalRows,"Bulk import complete");
   toast(`Bulk import completed: ${ok} added/updated, ${failed} failed.`,failed ? "error" : "success");
   $("bulkImportPreview").disabled = false;
 }
@@ -335,7 +356,7 @@ async function renderImportForm(page, target){
   target.innerHTML = `<div class="panel import-panel"><div class="panel-head"><h3>${esc(t.title)}</h3></div>
     <p class="form-help"><b>Columns:</b> ${esc(columns)}</p><p class="form-help">${rule}</p>
     <div class="dropzone"><input id="fileInput" type="file" accept=".csv,.xlsx,.xls"><div><button class="secondary-btn" id="importPreview" type="button">Preview</button> <button class="primary-btn" id="importGo" type="button" disabled>Import</button></div></div>
-    <div id="importMsg" class="message"></div><div id="importPreviewBox" class="table-wrap"></div></div>`;
+    <div id="importMsg" class="message"></div>${importProgressMarkup("importProgress")}<div id="importPreviewBox" class="table-wrap"></div></div>`;
   $("importPreview").addEventListener("click", () => importPreviewFile(page));
   $("importGo").addEventListener("click", () => importRun(page));
   if(state.settings?.imp?.[t.key] === false){ $("importPreview").disabled = true; $("fileInput").disabled = true; $("importMsg").textContent = "This import is turned off in Settings → Import Configuration."; $("importMsg").className = "message error"; }
@@ -389,19 +410,22 @@ async function importPreviewFile(page){
       : t.key === "DELIVERY" ? (() => { const vehicle = ex?.byVin.get(r.vin), found = !!vehicle, eligible = found && vStage(vehicle) === "bill"; return [!found ? "✗ VIN not found" : !eligible ? `✗ Tally incomplete (${vehicle.status || "Unknown"})` : "✓ Tally Done", !found ? "Ignored" : !eligible ? "Complete Sales/Tally first" : r.delivery_date ? "Will mark Delivered" : "Missing delivery date"]; })() : [])]));
   $("importGo").disabled = !importRows.length;
 }
-async function importInsertRows(rows, res){
+async function importInsertRows(rows, res, onRowComplete){
   const sb = state.supabase;
   for(const part of importChunks(rows, 50)){
     const r = await importWrite(b => sb.from("vehicles").insert(b), part);
-    if(!r.error){ res.added += part.length; continue; }
+    if(!r.error){ res.added += part.length; part.forEach(() => onRowComplete?.()); continue; }
     for(const one of part){                                    // isolate the bad row(s)
       const x = await importWrite(b => sb.from("vehicles").insert(b), one);
       if(x.error){ res.failed++; res.firstError ||= x.error.message; } else res.added++;
+      onRowComplete?.();
     }
   }
 }
-async function importRunRows(key, rows){
+async function importRunRows(key, rows, onProgress){
   const sb = state.supabase, res = {added:0, updated:0, moved:0, skipped:0, deliveredUpdated:0, invoiced:0, cancelled:0, failed:0, ignored:0, firstError:""};
+  let completed = 0;
+  const rowComplete = () => onProgress?.(++completed, rows.length);
   if(key === "DELIVERY"){
     const ex = await importFetchExisting(rows), deliveryFields = ["delivery_date","customer_name","finance_company","delivery_location","engine_no","model","variant","color","bill_no"];
     const vehicleIds = [...new Set(rows.map(r => ex.byVin.get(r.vin)?.id).filter(Boolean))], existingDeliveries = new Set();
@@ -411,6 +435,7 @@ async function importRunRows(key, rows){
       (found.data || []).forEach(row => existingDeliveries.add(String(row.vehicle_id)));
     }
     for(const r of rows){
+      try {
       if(!r.vin){ res.failed++; res.firstError ||= "VIN missing"; continue; }
       const vehicle = ex.byVin.get(r.vin);
       if(!vehicle){ res.ignored++; importIgnored.push(r.vin); continue; }
@@ -448,12 +473,14 @@ async function importRunRows(key, rows){
       if(updated.error || !updated.data?.length){ res.failed++; res.firstError ||= updated.error?.message || `Vehicle status not updated for ${r.vin}`; continue; }
       if(hadDelivery) res.updated++; else res.added++;
       res.deliveredUpdated++;
+      } finally { rowComplete(); }
     }
     return res;
   }
   if(key === "SALES"){                                       // matched VIN -> Sales details; Delivered status stays Delivered
     const ex = await importFetchExisting(rows), now = new Date().toISOString();
     for(const r of rows.map(importSalesOnly)){
+      try {
       if(!r.vin){ res.failed++; res.firstError ||= "VIN missing"; continue; }
       const cur = ex.byVin.get(r.vin);
       if(!importHasPurchase(cur)){ res.ignored++; importIgnored.push(r.vin); continue; }   // not in Purchase report -> ignore
@@ -467,13 +494,14 @@ async function importRunRows(key, rows){
       if(x.error){ res.failed++; res.firstError ||= x.error.message; }
       else if(!x.data?.length){ res.failed++; res.firstError ||= "Not saved — no permission to update vehicles (" + r.vin + ")"; }
       else { res.updated++; if(delivered) res.deliveredUpdated++; }
+      } finally { rowComplete(); }
     }
     return res;
   }
   const ex = await importFetchExisting(rows), fresh = [], updates = [];
   if(key === "ORDER"){
     for(const r of rows){
-      if(!r.order_no){ res.failed++; res.firstError ||= "Order No missing"; continue; }
+      if(!r.order_no){ res.failed++; res.firstError ||= "Order No missing"; rowComplete(); continue; }
       const cur = importFind(ex, r);
       if(cur){
         const curStage = vStage(cur), nextStatus = importIsCancelled(r) ? (["pending","cancelled"].includes(curStage) ? "Cancelled Order" : "") : curStage === "cancelled" ? (importIsInvoiced(r) ? "In Transit" : "Pending Order") : "";
@@ -487,7 +515,7 @@ async function importRunRows(key, rows){
     }
   } else {
     for(const r of rows){
-      if(!r.vin){ res.failed++; res.firstError ||= "VIN missing"; continue; }
+      if(!r.vin){ res.failed++; res.firstError ||= "VIN missing"; rowComplete(); continue; }
       const cur = importFind(ex, r);
       if(!cur){ fresh.push(importPayload(r, "PURCHASE", "In Transit")); continue; }
       const curSt = String(cur.status || "").toLowerCase(), movePending = typeof sysBool !== "function" || sysBool("imp_purchase_moves_pending");
@@ -499,17 +527,19 @@ async function importRunRows(key, rows){
     await Promise.all(part.map(async u => {
       const x = await importWrite(b => sb.from("vehicles").update(b).eq("id", u.id), u.patch);
       if(x.error){ res.failed++; res.firstError ||= x.error.message; } else { res.updated++; if(u.moved) res.moved++; }
+      rowComplete();
     }));
   }
-  await importInsertRows(fresh, res);
+  await importInsertRows(fresh, res, rowComplete);
   return res;
 }
 async function importRun(page){
   const t = IMPORT_TYPES[page], msg = $("importMsg");
   $("importGo").disabled = true; msg.className = "message"; msg.textContent = "Importing…"; importDropped.clear(); importIgnored = [];
   let res;
-  try { res = await importRunRows(t.key, importRows); }
-  catch(err){ msg.textContent = importMissingColumn(err) ? SQL_HINT : "Import stopped: " + (err.message || err); msg.className = "message error"; $("importGo").disabled = false; return; }
+  updateImportProgress("importProgress",0,importRows.length,"Starting import");
+  try { res = await importRunRows(t.key, importRows, done => updateImportProgress("importProgress",done,importRows.length,"Importing")); }
+  catch(err){ $("importProgress").querySelector("[data-progress-label]").textContent = "Import stopped"; msg.textContent = importMissingColumn(err) ? SQL_HINT : "Import stopped: " + (err.message || err); msg.className = "message error"; $("importGo").disabled = false; return; }
   if(typeof VCACHE !== "undefined") VCACHE.rows = null;
   const bits = t.key === "DELIVERY" ? [] : [`${res.added} added`];
   if(t.key === "PURCHASE") bits.push(`${res.updated} updated (${res.moved} moved Pending Order → In Transit)`);
@@ -529,6 +559,7 @@ async function importRun(page){
     await importWrite(b => state.supabase.from("import_batches").insert(b), {import_type:t.key, file_name:$("fileInput").files[0]?.name || "", total_rows:importRows.length,
       successful_rows:res.added + res.updated, failed_rows:res.failed, status:res.failed ? "Partial" : "Completed"});
   } catch { /* history is best effort */ }
+  updateImportProgress("importProgress",importRows.length,importRows.length,"Import complete");
   logAudit("IMPORT", "import", t.key, null, res);
   toast(`${t.title} import completed: ${res.added + res.updated} ok, ${res.failed} failed`, res.failed ? "error" : "success");
 }
