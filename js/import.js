@@ -19,6 +19,7 @@ const IMPORT_COLUMNS = {
 const DELIVERY_COLUMN_LABELS = Object.fromEntries(IMPORT_COLUMNS.DELIVERY.map(k => [k,
   k === "bhilarwadi_in_date" ? "bhilarwadi vehicle Receipt Dt" : k === "gst" ? "GST" : k === "delivery_location" ? FIELD_HEADING.sales_location : FIELD_HEADING[k]
 ]));
+const importColumnLabel = (key, column) => key === "DELIVERY" ? DELIVERY_COLUMN_LABELS[column] : FIELD_HEADING[column];
 function downloadImportTemplate(){
   if(!window.XLSX) return toast("Excel library not loaded (check internet).","error");
   const wb = XLSX.utils.book_new();
@@ -47,6 +48,18 @@ function updateImportProgress(id, done, total, label){
 }
 function importProgressMarkup(id){
   return `<div class="import-progress" id="${id}" hidden><div class="import-progress-head"><span data-progress-label></span><strong data-progress-percent>0%</strong></div><progress max="100" value="0" aria-label="Import progress"></progress></div>`;
+}
+function importFilePickerMarkup(id, accept){
+  return `<div class="import-file-picker"><input class="import-file-input" id="${id}" type="file" accept="${accept}" aria-label="Choose import file"><button class="secondary-btn" type="button" data-file-picker="${id}">Choose File</button><span id="${id}Name">No file selected</span></div>`;
+}
+function bindImportFilePicker(id, onFileSelected){
+  const input = $(id);
+  document.querySelector(`[data-file-picker="${id}"]`).addEventListener("click", () => input.click());
+  input.addEventListener("change", () => {
+    const file = input.files[0];
+    $(`${id}Name`).textContent = file?.name || "No file selected";
+    if(file) onFileSelected?.();
+  });
 }
 
 function importNorm(h){ return String(h ?? "").toLowerCase().replace(/%/g," pct ").replace(/[^a-z0-9]+/g," ").trim(); }
@@ -195,8 +208,9 @@ function renderBulkImportForm(target){
   bulkImportRows = null;
   target.innerHTML = `<div class="panel import-panel"><div class="panel-head"><h3>Bulk Import — Order, Purchase, Sales &amp; Delivery</h3></div>
     <p class="form-help">Upload the 4-sheet import template. Sheets are processed in Order → Purchase → Sales → Delivery sequence. Every sheet is required; rows without the required Order No. or VIN are skipped using the same rules as individual imports.</p>
-    <div class="dropzone"><input id="bulkImportFile" type="file" accept=".xlsx,.xls"><div><button class="secondary-btn" id="bulkImportPreview" type="button">Preview Sheets</button> <button class="primary-btn" id="bulkImportGo" type="button" disabled>Import All Sheets</button></div></div>
+    <div class="dropzone">${importFilePickerMarkup("bulkImportFile",".xlsx,.xls")}<div><button class="secondary-btn" id="bulkImportPreview" type="button">Preview Sheets</button> <button class="primary-btn" id="bulkImportGo" type="button" disabled>Import All Sheets</button></div></div>
     <div id="bulkImportMsg" class="message"></div>${importProgressMarkup("bulkImportProgress")}<div id="bulkImportPreviewBox" class="table-wrap"></div></div>`;
+  bindImportFilePicker("bulkImportFile", previewBulkImport);
   $("bulkImportPreview").addEventListener("click", previewBulkImport);
   $("bulkImportGo").addEventListener("click", runBulkImport);
 }
@@ -351,15 +365,15 @@ async function renderImportForm(page, target){
     SALES: "Only <b>Tally Invoice Date, VIN, Customer Name, Tally Invoice No and Tally Location</b> are imported; <b>Engine No, Model, Variant, Color and Total Invoice value</b> are fetched from the <b>Purchase report</b>. Matching VINs update their Sales details; Delivered vehicles stay Delivered. Rows whose VIN is not in the Purchase report are ignored.",
     DELIVERY: "Delivery rows are accepted only for vehicles in <b>Tally Done</b> status. Rows without Tally completion are rejected with the current vehicle status; rows without a matching vehicle or delivery date are also rejected."
   }[t.key];
-  const columnLabel = k => t.key === "DELIVERY" ? DELIVERY_COLUMN_LABELS[k] : FIELD_HEADING[k];
-  const columns = IMPORT_COLUMNS[t.key].map(columnLabel).join(", ");
+  const columns = IMPORT_COLUMNS[t.key].map(column => importColumnLabel(t.key,column)).join(", ");
   target.innerHTML = `<div class="panel import-panel"><div class="panel-head"><h3>${esc(t.title)}</h3></div>
     <p class="form-help"><b>Columns:</b> ${esc(columns)}</p><p class="form-help">${rule}</p>
-    <div class="dropzone"><input id="fileInput" type="file" accept=".csv,.xlsx,.xls"><div><button class="secondary-btn" id="importPreview" type="button">Preview</button> <button class="primary-btn" id="importGo" type="button" disabled>Import</button></div></div>
+    <div class="dropzone">${importFilePickerMarkup("fileInput",".csv,.xlsx,.xls")}<div><button class="secondary-btn" id="importPreview" type="button">Preview</button> <button class="primary-btn" id="importGo" type="button" disabled>Import</button></div></div>
     <div id="importMsg" class="message"></div>${importProgressMarkup("importProgress")}<div id="importPreviewBox" class="table-wrap"></div></div>`;
   $("importPreview").addEventListener("click", () => importPreviewFile(page));
   $("importGo").addEventListener("click", () => importRun(page));
-  if(state.settings?.imp?.[t.key] === false){ $("importPreview").disabled = true; $("fileInput").disabled = true; $("importMsg").textContent = "This import is turned off in Settings → Import Configuration."; $("importMsg").className = "message error"; }
+  bindImportFilePicker("fileInput", () => importPreviewFile(page));
+  if(state.settings?.imp?.[t.key] === false){ $("importPreview").disabled = true; $("fileInput").disabled = true; document.querySelector('[data-file-picker="fileInput"]').disabled = true; $("importMsg").textContent = "This import is turned off in Settings → Import Configuration."; $("importMsg").className = "message error"; }
 }
 async function importPreviewFile(page){
   const f = $("fileInput").files[0], t = IMPORT_TYPES[page], msg = $("importMsg");
@@ -391,7 +405,7 @@ async function importPreviewFile(page){
   const orderCols = IMPORT_COLUMNS.ORDER, purchaseCols = IMPORT_COLUMNS.PURCHASE, salesCols = IMPORT_COLUMNS.SALES;
   const shown = IMPORT_COLUMNS[t.key];
   const matchHead = t.key === "SALES" ? ["Purchase match","After import"] : t.key === "DELIVERY" ? ["Vehicle match","After import"] : [];
-  $("importPreviewBox").innerHTML = table([...shown.map(columnLabel), ...matchHead], importRows.slice(0, t.key === "SALES" ? 50 : 15).map(r => [...shown.map(c => {
+  $("importPreviewBox").innerHTML = table([...shown.map(column => importColumnLabel(t.key,column)), ...matchHead], importRows.slice(0, t.key === "SALES" ? 50 : 15).map(r => [...shown.map(c => {
     if(t.key === "DELIVERY"){
       const vehicle = ex?.byVin.get(r.vin);
       if(c === "bhilarwadi_in_date") return fmtD(deliveryInDates.get(r.vin));

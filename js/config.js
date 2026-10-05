@@ -4,7 +4,6 @@ window.SUPABASE_CONFIG = {
 };
 window.APP_CONFIG = {
   deliveredStatus: "Delivered",
-  googleDriveClientId: "",
   usernameEmailMap: {
     admin: "kcpl.appsheet@gmail.com"
   }

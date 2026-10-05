@@ -46,7 +46,7 @@ const DRIVE_UPLOAD_ROOT = "https://www.googleapis.com/upload/drive/v3";
 const DRIVE_BACKUP_ROOT_NAME = "Kothari Hyundai Backups";
 const DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder";
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-const DRIVE_AUTO_BACKUP_KEY = "kh-drive-auto-backup";
+const DRIVE_AUTO_BACKUP_KEY = "kh-drive-auto-backup-v2";
 const DRIVE_AUTO_BACKUP_DATE_KEY = "kh-drive-auto-backup-last-success";
 let DRIVE_BACKUP_RUNNING = false;
 
@@ -54,65 +54,22 @@ function renderBackupRestore(){
   if(!state.isAdmin){ renderDenied(); return; }
   $("content").innerHTML = `<div class="panel backup-panel">
     <div class="panel-head"><h3>Backup & Restore</h3></div>
-    <p class="form-help">Google Drive backups include application data and settings but omit profile display-password values. Photos, PDFs, gate-pass files and actual Supabase login passwords are not included. Excel file backups remain separately encrypted with your passphrase.</p>
+    <p class="form-help">Backup ZIP मध्ये application data आणि settings असतील. Profile display-passwords, photos, PDFs, gate-pass files आणि Supabase login passwords backup मध्ये नसतील. ZIP password-protected नाही; Google Drive मधील access private ठेवा.</p>
     <section class="backup-section">
       <h4>Google Drive backup</h4>
-      <p class="form-help">Backups are uploaded directly to your Google Drive without a passphrase. Anyone with access to this Google account can read the backup data. First-time setup requires an OAuth Web Client ID in js/config.js and the Google Drive API enabled for that client.</p>
-      <div class="backup-actions"><button class="primary-btn" type="button" id="backupDriveUpload">☁ Backup to Google Drive</button></div>
-      <label class="backup-auto-option"><input id="driveAutoBackupEnabled" type="checkbox"> Automatically back up once per day on the first Admin login</label>
-      <p class="form-help">Automatic backup runs when an Admin logs in with this browser. The website must be open and Google Drive authorization must be available; it cannot run while the website/browser is closed.</p>
-      <div id="driveBackupMessage" class="message" aria-live="polite"></div>
+      <p class="form-help">1. Download Backup ZIP. 2. ZIP तयार झाल्यावर Open Google Drive क्लिक करा. 3. Google Drive मध्ये ZIP manually upload करा.</p>
+      <div class="backup-actions"><button class="primary-btn" type="button" id="backupZipDownload">⬇ Download Backup ZIP</button><a class="secondary-btn" id="openGoogleDrive" href="https://drive.google.com/drive/my-drive" target="_blank" rel="noopener">↗ Open Google Drive</a></div>
+      <div id="backupZipMessage" class="message" aria-live="polite"></div>
     </section>
     <section class="backup-section">
-      <h4>Google Drive restore</h4>
-      <p class="form-help">Restore adds missing rows and updates matching rows. It never deletes existing records. Choose a Google Drive backup to validate it before restoring.</p>
-      <div class="backup-actions"><button class="secondary-btn" type="button" id="backupDriveList">↻ Find Drive Backups</button><select id="backupDriveSelect" aria-label="Google Drive backup folder"><option value="">Select a Google Drive backup</option></select></div>
-      <div class="backup-actions"><button class="secondary-btn" type="button" id="backupDriveLoad">Load &amp; Validate from Drive</button><button class="primary-btn" type="button" id="backupDriveRestore" disabled>Restore from Google Drive</button></div>
-      <div id="driveRestoreMessage" class="message" aria-live="polite"></div><div id="driveRestorePreview"></div>
-    </section>
-    <section class="backup-section">
-      <h4>NAS / MyCloud portal backup &amp; restore</h4>
-      <p class="form-help">NAS integration is not configured yet. To enable upload and restore, the portal must provide an HTTPS API or WebDAV endpoint for file upload, file listing/download, and an authentication method. Share API documentation or endpoint details with an administrator; do not enter or share passwords or API secrets here.</p>
-      <div class="backup-actions"><button class="secondary-btn" type="button" disabled title="NAS API setup required">☁ Backup to NAS portal</button><button class="secondary-btn" type="button" disabled title="NAS API setup required">Restore from NAS portal</button></div>
-      <div class="message" aria-live="polite">Setup required — NAS portal access method is not configured.</div>
-    </section>
-    <section class="backup-section">
-      <h4>Excel file backup</h4>
-      <p class="form-help">Create an encrypted Excel workbook, or save the complete workbook and table-wise workbooks into a local folder.</p>
-      <label class="backup-label" for="backupExportPass">Excel backup passphrase (minimum 12 characters)</label><input id="backupExportPass" type="password" autocomplete="new-password" minlength="12">
-      <label class="backup-label" for="backupExportConfirm">Confirm Excel backup passphrase</label><input id="backupExportConfirm" type="password" autocomplete="new-password" minlength="12">
-      <div class="backup-actions"><button class="primary-btn" type="button" id="backupDownload">⬇ Download Excel Backup</button><button class="secondary-btn" type="button" id="backupFolderDownload">📁 Save Folder-wise Backup</button></div>
-      <div id="backupFolderMessage" class="message" aria-live="polite"></div>
-    </section>
-    <section class="backup-section">
-      <h4>Excel file restore</h4>
-      <p class="form-help">Select an Excel backup workbook, enter its passphrase, and validate it before restoring. For folder-wise backups, select the complete workbook in the backup folder root, not an individual section workbook.</p>
-      <label for="backupFile">Select backup workbook (.xlsx)</label><input id="backupFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
-      <label class="backup-label" for="backupRestorePass">Excel backup passphrase</label><input id="backupRestorePass" type="password" autocomplete="current-password">
-      <div class="backup-actions"><button class="secondary-btn" type="button" id="backupPreviewButton">Validate Excel backup</button><button class="primary-btn" type="button" id="backupRestore" disabled>Restore from Excel</button></div>
+      <h4>Restore backup</h4>
+      <p class="form-help">Select a backup ZIP or legacy Excel workbook. ZIP files include a restorable workbook. Restore adds missing rows and updates matching rows; it never deletes existing records.</p>
+      <label for="backupFile">Select backup (.zip or .xlsx)</label><input id="backupFile" type="file" accept=".zip,.xlsx,application/zip,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+      <label class="backup-label" for="backupRestorePass">Legacy Excel backup passphrase (only if requested)</label><input id="backupRestorePass" type="password" autocomplete="current-password">
+      <div class="backup-actions"><button class="secondary-btn" type="button" id="backupPreviewButton">Validate Backup</button><button class="primary-btn" type="button" id="backupRestore" disabled>Restore Backup</button></div>
       <div id="backupMessage" class="message" aria-live="polite"></div><div id="backupPreview"></div>
     </section></div>`;
-  $("backupDownload").addEventListener("click", createDataBackup);
-  $("backupFolderDownload").addEventListener("click", createFolderWiseBackup);
-  $("backupDriveUpload").addEventListener("click", createDriveBackup);
-  $("backupDriveList").addEventListener("click", listDriveBackups);
-  $("backupDriveLoad").addEventListener("click", loadDriveBackupForRestore);
-  $("backupDriveRestore").addEventListener("click", restoreDriveDataBackup);
-  $("driveAutoBackupEnabled").checked = store.get(DRIVE_AUTO_BACKUP_KEY) === "true";
-  $("driveAutoBackupEnabled").addEventListener("change", event => {
-    store.set(DRIVE_AUTO_BACKUP_KEY, event.target.checked ? "true" : "false");
-    backupDriveStatus(event.target.checked
-      ? "Daily backup enabled. It will run the next time an Admin logs in, if Google Drive is authorized."
-      : "Daily Google Drive backup disabled.");
-  });
-  $("backupDriveSelect").addEventListener("change", () => {
-    DRIVE_RESTORE_FILE = null;
-    DRIVE_RESTORE_PREVIEW = null;
-    $("backupDriveRestore").disabled = true;
-    $("driveRestorePreview").replaceChildren();
-    $("driveRestoreMessage").textContent = "";
-    $("driveRestoreMessage").className = "message";
-  });
+  $("backupZipDownload").addEventListener("click", createZipBackup);
   $("backupPreviewButton").addEventListener("click", previewDataBackup);
   $("backupRestore").addEventListener("click", restoreDataBackup);
   $("backupFile").addEventListener("change", () => {
@@ -128,6 +85,55 @@ function renderBackupRestore(){
     $("backupRestore").disabled = true;
     $("backupPreview").replaceChildren();
   });
+}
+function backupZipStatus(message, type = ""){
+  const el = $("backupZipMessage");
+  if(!el) return;
+  el.textContent = message;
+  el.className = "message" + (type ? " " + type : "");
+}
+async function createZipBackup(){
+  const btn = $("backupZipDownload");
+  if(!state.isAdmin) return toast("Only Admin can create backups.","error");
+  if(!window.XLSX) return backupZipStatus("Excel library did not load. Check your internet connection.", "error");
+  if(!window.JSZip) return backupZipStatus("ZIP library did not load. Check your internet connection and reload.", "error");
+  btn.disabled = true;
+  try {
+    backupZipStatus("Collecting application data…");
+    const {wb, contents} = await collectDriveBackupContents(btn);
+    const date = todayLocal();
+    const fileName = `kothari-hyundai-backup-${date}.xlsx`;
+    const zip = new window.JSZip();
+    zip.file(fileName, backupWorkbookBytes(wb));
+    zip.file("README.txt", [
+      "Kothari Hyundai Vehicle Inventory Backup",
+      `Backup date: ${date}`,
+      "",
+      "Restore: in the website open Backup & Restore, select this ZIP under Restore Backup, validate it, and restore.",
+      "Passwords, profile display-passwords, photos, PDFs, and gate-pass files are not included."
+    ].join("\r\n"));
+    backupZipStatus("Creating dated ZIP file…");
+    const blob = await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:6}}, metadata => {
+      backupZipStatus(`Creating Backup ZIP… ${Math.floor(metadata.percent)}%`);
+    });
+    const url = URL.createObjectURL(blob), link = document.createElement("a");
+    link.href = url;
+    link.download = `kothari-hyundai-backup-${date}.zip`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    const records = contents.reduce((total, item) => total + item.rows.length, 0);
+    logAudit("CREATE_BACKUP","administration","backup",null,{tables:contents.length,records,zip:true});
+    backupZipStatus(`Backup ZIP downloaded: kothari-hyundai-backup-${date}.zip. Open Google Drive and upload this ZIP.`, "success");
+  } catch(error){
+    const message = "Backup ZIP failed: " + (error.message || error);
+    backupZipStatus(message, "error");
+    toast(message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "⬇ Download Backup ZIP";
+  }
 }
 
 function backupStatus(message, type = ""){
@@ -157,7 +163,7 @@ function driveRestoreStatus(message, type = ""){
 function backupDriveConfig(){
   const clientId = window.APP_CONFIG?.googleDriveClientId;
   if(typeof clientId !== "string" || !clientId.trim()) {
-    throw new Error("Google Drive is not configured. Add your Google OAuth Web Client ID to APP_CONFIG.googleDriveClientId in js/config.js, enable the Google Drive API, and add this website's origin to the OAuth client's authorized JavaScript origins.");
+    throw new Error("Google Drive is not configured. Add your Google OAuth Web Client ID to APP_CONFIG.googleDriveClientId in js/config.js, enable the Google Drive API and Gmail API, and add this website's origin to the OAuth client's authorized JavaScript origins.");
   }
   return clientId.trim();
 }
@@ -260,28 +266,42 @@ async function createDriveFolder(name, parentId){
   if(!folder?.id) throw new Error(`Google Drive did not create folder ${name}.`);
   return folder;
 }
+async function getOrCreateDriveFolder(name, parentId){
+  return await findDriveFolder(name, parentId) || await createDriveFolder(name, parentId);
+}
 async function getDriveBackupRoot(create = false){
   let folder = await findDriveFolder(DRIVE_BACKUP_ROOT_NAME);
   if(!folder && create) folder = await createDriveFolder(DRIVE_BACKUP_ROOT_NAME, "root");
   return folder;
 }
 async function uploadDriveWorkbook(parentId, name, workbook){
+  const query = new URLSearchParams({
+    q:`name = '${driveEscapeQuery(name)}' and '${driveEscapeQuery(parentId)}' in parents and trashed = false`,
+    spaces:"drive",
+    fields:"files(id,name)",
+    pageSize:"100"
+  });
+  const found = await driveApi(`/files?${query.toString()}`);
+  const existing = found.files?.[0];
   const boundary = `kh_backup_${backupBase64(backupRandom(12)).replace(/[+/=]/g,"")}`;
-  const metadata = JSON.stringify({name,mimeType:XLSX_MIME,parents:[parentId]});
+  const metadata = JSON.stringify({name,mimeType:XLSX_MIME,...(existing ? {} : {parents:[parentId]})});
   const body = new Blob([
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n`,
     `--${boundary}\r\nContent-Type: ${XLSX_MIME}\r\n\r\n`,
     backupWorkbookBytes(workbook),
     `\r\n--${boundary}--`
   ]);
-  const result = await driveApiUpload(`/files?uploadType=multipart&fields=id,name`, boundary, body);
+  const path = existing
+    ? `/files/${encodeURIComponent(existing.id)}?uploadType=multipart&fields=id,name`
+    : `/files?uploadType=multipart&fields=id,name`;
+  const result = await driveApiUpload(path, boundary, body, existing ? "PATCH" : "POST");
   if(!result?.id) throw new Error(`Google Drive did not save ${name}.`);
   return result;
 }
-async function driveApiUpload(path, boundary, body){
+async function driveApiUpload(path, boundary, body, method = "POST"){
   const token = await getDriveAccessToken();
   const response = await fetch(`${DRIVE_UPLOAD_ROOT}${path}`, {
-    method:"POST",
+    method,
     headers:{Authorization:`Bearer ${token}`, "Content-Type":`multipart/related; boundary=${boundary}`},
     body
   });
@@ -292,6 +312,36 @@ async function driveApiUpload(path, boundary, body){
     throw new Error(`Google Drive upload failed (${response.status})${detail ? `: ${detail}` : ""}${response.status === 401 ? ". Retry and approve Drive access." : ""}`);
   }
   return response.json();
+}
+async function emailDriveBackupLink(folder, backupDate){
+  const recipient = String(window.APP_CONFIG?.backupNotificationEmail || window.APP_CONFIG?.usernameEmailMap?.admin || "").trim();
+  if(!recipient) throw new Error("Admin backup notification email is not configured in js/config.js.");
+  const subject = `Kothari Hyundai daily backup - ${backupDate}`;
+  const link = `https://drive.google.com/drive/folders/${encodeURIComponent(folder.id)}`;
+  const message = [
+    `To: ${recipient}`,
+    `Subject: ${subject}`,
+    "MIME-Version: 1.0",
+    "Content-Type: text/plain; charset=UTF-8",
+    "",
+    `The Kothari Hyundai data backup for ${backupDate} is ready in Google Drive.`,
+    "",
+    `Open backup folder: ${link}`,
+    "",
+    "This email contains a link only; it does not include the backup as an attachment."
+  ].join("\r\n");
+  const raw = backupBase64(new TextEncoder().encode(message)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+  const token = await getDriveAccessToken();
+  const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+    method:"POST",
+    headers:{"Content-Type":"application/json",Authorization:"Bearer " + token},
+    body:JSON.stringify({raw})
+  });
+  if(!response.ok){
+    let detail = "";
+    try { detail = (await response.json()).error?.message || ""; } catch {}
+    throw new Error(`Admin backup email failed (${response.status})${detail ? `: ${detail}` : ""}. Approve the Gmail permission and enable the Gmail API.`);
+  }
 }
 async function listDriveChildren(parentId, mimeType = null){
   const all = [];
@@ -547,6 +597,7 @@ async function createDriveBackup(options = {}){
   if(!window.XLSX) return backupDriveStatus("Excel library not loaded (check internet).", "error");
   if(DRIVE_BACKUP_RUNNING) return backupDriveStatus("A Google Drive backup is already in progress.");
   DRIVE_BACKUP_RUNNING = true;
+  let backupSaved = false;
   if(btn) btn.disabled = true;
   try {
     if(automatic) toast("Automatic Google Drive backup started.","info");
@@ -554,13 +605,13 @@ async function createDriveBackup(options = {}){
     backupDriveStatus("Connecting to Google Drive…");
     const root = await getDriveBackupRoot(true);
     if(!root) throw new Error("Could not create the Google Drive backup folder.");
-    const stamp = new Date().toISOString().replace("T"," ").replace(/:/g,"-").replace(/\.\d{3}Z$/," UTC");
-    const backupName = `Kothari Hyundai Backup ${stamp}`;
-    const backupFolder = await createDriveFolder(backupName, root.id);
+    const backupDate = todayLocal();
+    const backupName = `Kothari Hyundai Backup ${backupDate}`;
+    const backupFolder = await getOrCreateDriveFolder(backupName, root.id);
     const {wb, contents} = await collectDriveBackupContents(btn);
     let uploaded = 0;
     for(const [folderName, tableNames] of Object.entries(BACKUP_FOLDER_GROUPS)){
-      const sectionFolder = await createDriveFolder(folderName, backupFolder.id);
+      const sectionFolder = await getOrCreateDriveFolder(folderName, backupFolder.id);
       for(const tableName of tableNames){
         const item = contents.find(entry => entry.table.name === tableName);
         if(!item) throw new Error(`Backup table ${tableName} is missing.`);
@@ -580,15 +631,22 @@ async function createDriveBackup(options = {}){
       }
     }
     backupDriveStatus("Uploading complete restorable workbook to Google Drive…");
-    await uploadDriveWorkbook(backupFolder.id, `kothari-hyundai-backup-${todayLocal()}.xlsx`, wb);
+    await uploadDriveWorkbook(backupFolder.id, `kothari-hyundai-backup-${backupDate}.xlsx`, wb);
+    backupSaved = true;
+    backupDriveStatus("Backup saved. Sending the Admin email link…");
+    await emailDriveBackupLink(backupFolder, backupDate);
     logAudit("CREATE_BACKUP","administration","backup",null,{tables:contents.length, records:contents.reduce((n,x) => n + x.rows.length,0),googleDrive:true});
     backupDriveStatus(`Google Drive backup completed: ${backupName}. Use “Find Drive Backups” to validate and restore it.`, "success");
     store.set(DRIVE_AUTO_BACKUP_DATE_KEY, todayLocal());
     toast("Google Drive backup completed.","success");
     if(!automatic) await listDriveBackups();
   } catch(err){
-    backupDriveStatus("Google Drive backup failed: " + (err.message || err), "error");
-    toast("Google Drive backup failed: " + (err.message || err), "error");
+    const message = err.message || String(err);
+    const failure = backupSaved
+      ? `Backup saved to Google Drive, but the Admin email could not be sent: ${message}`
+      : "Google Drive backup failed: " + message;
+    backupDriveStatus(failure, "error");
+    toast(failure,"error");
   } finally {
     if(btn){
       btn.disabled = false;
@@ -598,7 +656,7 @@ async function createDriveBackup(options = {}){
   }
 }
 async function runDailyDriveBackupOnAdminLogin(){
-  if(!state.isAdmin || store.get(DRIVE_AUTO_BACKUP_KEY) !== "true" || DRIVE_BACKUP_RUNNING) return;
+  if(!state.isAdmin || store.get(DRIVE_AUTO_BACKUP_KEY) === "false" || DRIVE_BACKUP_RUNNING) return;
   const today = todayLocal();
   if(store.get(DRIVE_AUTO_BACKUP_DATE_KEY) === today) return;
   await createDriveBackup({automatic:true});
@@ -717,16 +775,29 @@ async function parseBackupWorkbook(file, passphrase){
   for(const table of BACKUP_TABLES) data.push({table, rows:await readBackupTable(wb, table, manifest.get(table.name), encryptionKey, passwordEncryption)});
   return data;
 }
+async function backupWorkbookFromFile(file){
+  if(!/\.zip$/i.test(file.name)) return file;
+  if(!window.JSZip) throw new Error("ZIP library did not load. Check your internet connection and reload.");
+  const zip = await window.JSZip.loadAsync(file);
+  const workbookPaths = Object.keys(zip.files).filter(path =>
+    !zip.files[path].dir && /^kothari-hyundai-backup-.+\.xlsx$/i.test(path.split("/").pop() || "")
+  );
+  if(workbookPaths.length !== 1) throw new Error("ZIP must contain exactly one complete Kothari Hyundai backup workbook.");
+  const workbookPath = workbookPaths[0];
+  const workbookBlob = await zip.files[workbookPath].async("blob");
+  return new File([workbookBlob], workbookPath.split("/").pop(), {type:XLSX_MIME});
+}
 async function previewDataBackup(){
-  const file = $("backupFile").files?.[0];
+  const sourceFile = $("backupFile").files?.[0];
   const btn = $("backupPreviewButton");
   RESTORE_PREVIEW = null; $("backupRestore").disabled = true; $("backupPreview").innerHTML = "";
-  if(!file) return backupStatus("Select an Excel backup file first.", "error");
+  if(!sourceFile) return backupStatus("Select a backup ZIP or Excel workbook first.", "error");
   if(!window.XLSX) return backupStatus("Excel library not loaded (check internet).", "error");
-  btn.disabled = true; backupStatus("Validating workbook…");
+  btn.disabled = true; backupStatus("Opening and validating backup…");
   try {
+    const file = await backupWorkbookFromFile(sourceFile);
     const data = await parseBackupWorkbook(file, $("backupRestorePass").value);
-    RESTORE_PREVIEW = {file, counts:data.map(x => [x.table.name, x.rows.length])};
+    RESTORE_PREVIEW = {file, sourceFile, counts:data.map(x => [x.table.name, x.rows.length])};
     const total = data.reduce((n,x) => n + x.rows.length, 0);
     $("backupPreview").innerHTML = `<div class="table-wrap">${table(["Table","Rows to add/update"],RESTORE_PREVIEW.counts)}</div><p class="form-help">${total.toLocaleString("en-IN")} rows validated. Current records not present in this workbook will remain unchanged.</p>`;
     backupStatus(`Backup validated: ${total.toLocaleString("en-IN")} rows ready.`, "success");
@@ -735,22 +806,18 @@ async function previewDataBackup(){
   finally { btn.disabled = false; }
 }
 async function restoreDataBackup(){
-  return restoreBackupSource("excel");
+  return restoreBackupSource();
 }
-async function restoreDriveDataBackup(){
-  return restoreBackupSource("drive");
-}
-async function restoreBackupSource(source){
+async function restoreBackupSource(){
   if(!state.isAdmin) return toast("Only Admin can restore backups.","error");
-  const isDrive = source === "drive";
-  const preview = isDrive ? DRIVE_RESTORE_PREVIEW : RESTORE_PREVIEW;
-  const file = isDrive ? DRIVE_RESTORE_FILE : $("backupFile").files?.[0];
-  const status = isDrive ? driveRestoreStatus : backupStatus;
-  const button = $(isDrive ? "backupDriveRestore" : "backupRestore");
-  const passphrase = isDrive ? "" : $("backupRestorePass").value;
-  if(!preview || preview.file !== file) return status("Validate the selected backup before restoring.", "error");
+  const preview = RESTORE_PREVIEW;
+  const sourceFile = $("backupFile").files?.[0];
+  const status = backupStatus;
+  const button = $("backupRestore");
+  const passphrase = $("backupRestorePass").value;
+  if(!preview || preview.sourceFile !== sourceFile) return status("Validate the selected backup before restoring.", "error");
   const total = preview.counts.reduce((n,x) => n + x[1], 0);
-  if(!confirm(`Restore ${total.toLocaleString("en-IN")} rows from this ${isDrive ? "Google Drive" : "Excel"} backup? Matching rows will be updated; existing extra rows will not be deleted. Attachments and account passwords are not restored.`)) return;
+  if(!confirm(`Restore ${total.toLocaleString("en-IN")} rows from this backup? Matching rows will be updated; existing extra rows will not be deleted. Attachments and account passwords are not restored.`)) return;
   button.disabled = true;
   let completed = 0;
   try {
@@ -775,14 +842,9 @@ async function restoreBackupSource(source){
     state.locations = null; VCACHE.rows = null;
     status(`Restore completed: ${completed.toLocaleString("en-IN")} rows added or updated. No existing rows were deleted.`, "success");
     toast("Backup restore completed.","success");
-    $(isDrive ? "driveRestorePreview" : "backupPreview").innerHTML += `<p class="message success">Restore completed. Refreshing application data…</p>`;
-    if(isDrive){
-      DRIVE_RESTORE_PREVIEW = null;
-      DRIVE_RESTORE_FILE = null;
-    } else {
-      RESTORE_PREVIEW = null;
-      $("backupRestorePass").value = "";
-    }
+    $("backupPreview").innerHTML += `<p class="message success">Restore completed. Refreshing application data…</p>`;
+    RESTORE_PREVIEW = null;
+    $("backupRestorePass").value = "";
     setTimeout(() => window.location.reload(), 1800);
   } catch(err){
     status(`Restore stopped after ${completed.toLocaleString("en-IN")} rows: ${err.message || err}. You can safely retry this workbook; rows are upserted.`, "error");

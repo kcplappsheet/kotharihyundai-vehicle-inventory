@@ -10,22 +10,14 @@ async function renderAdmin(page){
       <div><label>EMAIL ADDRESS</label><input name="email" type="email" required autocomplete="email"></div>
       <div><label>PASSWORD</label><div class="password-field"><input id="newUserPassword" name="password" required type="password" minlength="6" maxlength="12" placeholder="6 to 12 characters"><button type="button" class="password-eye" data-password-toggle="newUserPassword" aria-label="Show password" title="Show password">👁</button></div></div>
       <div><label>ROLE</label><select name="role_id" id="newUserRole" required></select></div>
-      <div><label>LOCATION</label><select name="location_id" id="newUserLocation" required></select></div>
+      <div><label>LOCATION ACCESS</label><select name="location_id" id="newUserLocation" required></select></div>
       <div><label>STATUS</label><select name="active"><option value="true">Active</option><option value="false">Inactive</option></select></div>
       <div class="full form-actions"><button class="primary-btn" type="submit">Create User</button></div></form><div id="createUserMessage" class="message"></div></div>
       <div class="panel"><div class="panel-head"><h3>Users</h3></div><div id="usersTable" class="table-wrap"></div></div>
       <div class="panel" id="rolesPanel"></div><div id="modal"></div>`;
     const [roles, locs] = await Promise.all([sb.from("roles").select("id,name").order("name"), getLocations()]);
     $("newUserRole").innerHTML = `<option value="">Select role</option>` + (roles.data||[]).map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join("");
-    $("newUserLocation").innerHTML = `<option value="">All Locations</option>` + locs.filter(l => l.active !== false).map(l => `<option value="${esc(l.id)}">${esc(l.location_name)}</option>`).join("");
-    const syncLocationRequirement = () => {
-      const selectedRole = (roles.data || []).find(r => String(r.id) === $("newUserRole").value);
-      const isAdminRole = String(selectedRole?.name || "").trim().toLowerCase() === "admin";
-      $("newUserLocation").required = !isAdminRole;
-      $("newUserLocation").options[0].textContent = isAdminRole ? "All Locations" : "Select Location";
-    };
-    $("newUserRole").addEventListener("change", syncLocationRequirement);
-    syncLocationRequirement();
+    $("newUserLocation").innerHTML = `<option value="ALL">All Locations</option>` + locs.filter(l => l.active !== false).map(l => `<option value="${esc(l.id)}">${esc(l.location_name)}</option>`).join("");
     $("createUserForm").addEventListener("submit", createUser);
     renderRolesPanel();
     return loadUsers();
@@ -50,15 +42,15 @@ async function createUser(e){
   const f = Object.fromEntries(new FormData(e.target).entries()), msg = $("createUserMessage");
   const say = (t, cls) => { msg.textContent = t; msg.className = "message " + (cls||""); };
   if(f.password.length < 6 || f.password.length > 12) return say("Password must be 6 to 12 characters.","error");
-  const roleName = $("newUserRole").selectedOptions[0]?.textContent.trim().toLowerCase();
-  if(roleName !== "admin" && !f.location_id) return say("Select a location for this user.","error");
+  const allLocations = f.location_id === "ALL";
+  const locationId = allLocations ? null : f.location_id;
   const {data:{session}} = await state.supabase.auth.getSession();
   if(!session) return say("Session expired. Please login again.","error");
   say("Creating user…");
   try {
     const res = await fetch(`${SUPABASE_CONFIG.url}/functions/v1/create-user`, {method:"POST",
       headers:{"Content-Type":"application/json", "Authorization":`Bearer ${session.access_token}`, "apikey":SUPABASE_CONFIG.anonKey},
-      body:JSON.stringify({username:normalizeUsername(f.username), full_name:f.full_name.trim(), email:f.email.trim().toLowerCase(), password:f.password, role_id:f.role_id, location_id:f.location_id||null, active:f.active==="true"})});
+      body:JSON.stringify({username:normalizeUsername(f.username), full_name:f.full_name.trim(), email:f.email.trim().toLowerCase(), password:f.password, role_id:f.role_id, location_id:locationId||null, all_locations:allLocations, active:f.active==="true"})});
     const out = await res.json().catch(() => ({}));
     if(!res.ok) return say(out.error || "Unable to create user.","error");
     
@@ -73,14 +65,14 @@ async function createUser(e){
 async function loadUsers(){
   if(!$("usersTable")) return;
   await getLocations();
-  const [r, rl] = await Promise.all([state.supabase.from("user_profiles").select("id,username,full_name,email,password_display,active,created_at,role_id,roles(name),location_id").order("created_at",{ascending:false}),
+  const [r, rl] = await Promise.all([state.supabase.from("user_profiles").select("id,username,full_name,email,password_display,active,created_at,role_id,roles(name),location_id,all_locations").order("created_at",{ascending:false}),
     state.supabase.from("roles").select("id,name").order("name")]);
   const ad = state.isAdmin, list = r.data || [], roles = rl.data || [];
   const roleSel = x => raw(`<select class="inline-sel" data-u-role="${esc(x.id)}" ${ad ? "" : "disabled"}>${roles.map(o => `<option value="${esc(o.id)}" ${o.id === x.role_id ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select>`);
   const statSel = x => raw(`<select class="inline-sel" data-u-active="${esc(x.id)}" ${ad ? "" : "disabled"}><option value="true" ${x.active === false ? "" : "selected"}>Active</option><option value="false" ${x.active === false ? "selected" : ""}>Inactive</option></select>`);
   const pwdCell = x => raw(`<div class="password-field table-password"><input id="pwd_${esc(x.id)}" type="password" value="${esc(x.password_display || "")}" placeholder="Not available" readonly><button type="button" class="password-eye" data-password-toggle="pwd_${esc(x.id)}" aria-label="Show password" title="Show password">👁</button></div>`);
   $("usersTable").innerHTML = r.error ? emptyState(r.error.message) :
-    table(["Username","Name","Email","Password","Role","Location","Status","Created",...(ad ? ["Action"] : [])], list.map((x,i) => [x.username,x.full_name,x.email||"-",pwdCell(x),roleSel(x),x.location_id?locName(x.location_id):"All Locations",statSel(x),fmtDT(x.created_at),
+    table(["Username","Name","Email","Password","Role","Location","Status","Created",...(ad ? ["Action"] : [])], list.map((x,i) => [x.username,x.full_name,x.email||"-",pwdCell(x),roleSel(x),x.all_locations ? "All Locations" : x.location_id ? locName(x.location_id) : "No location access",statSel(x),fmtDT(x.created_at),
       ...(ad ? [raw(`<button class="table-icon-btn" type="button" data-user-edit="${i}" title="Edit">✎</button><button class="table-icon-btn" type="button" data-user-reset="${i}" title="Reset password">↻</button><button class="table-icon-btn danger" type="button" data-user-del="${i}" title="Delete user">🗑</button>`)] : [])]));
   const box = $("usersTable");
   box.querySelectorAll("[data-password-toggle]").forEach(b => b.addEventListener("click", () => {

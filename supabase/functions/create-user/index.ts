@@ -181,6 +181,15 @@ Deno.serve(async (req) => {
     String(locationIdRaw).trim() !== ""
       ? String(locationIdRaw).trim()
       : null;
+  const allLocations = body.all_locations === true;
+
+  if (body.all_locations !== undefined && typeof body.all_locations !== "boolean") {
+    return json({ error: "All Locations access must be true or false." }, 400);
+  }
+
+  if (allLocations && locationId) {
+    return json({ error: "Choose either All Locations or one location, not both." }, 400);
+  }
 
   const active =
     body.active !== false;
@@ -273,8 +282,11 @@ Deno.serve(async (req) => {
 
   // =====================================================
   // LOCATION VALIDATION
-  // NULL = ALL LOCATIONS
   // =====================================================
+
+  if (!allLocations && !locationId) {
+    return json({ error: "Select one location or explicitly choose All Locations." }, 400);
+  }
 
   if (locationId) {
     const {
@@ -417,10 +429,11 @@ Deno.serve(async (req) => {
       email,
       role_id: roleId,
       location_id: locationId,
+      all_locations: allLocations,
       active,
     })
     .select(
-      "id, username, full_name, email, role_id, location_id, active"
+      "id, username, full_name, email, role_id, location_id, all_locations, active"
     )
     .single();
 

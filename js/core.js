@@ -13,7 +13,7 @@ const MENU = [
     ["data-import","Data Import","⇧"],["import-data","Imported Data","☰"],["import-history","Import History","≡"]
   ]},
   {section:"GATE MANAGEMENT", items:[
-    ["bhilarwadi","bhilarwadi vehicle in","⇄"],["gate","Vehicle In/ Out","⇄"],
+    ["bhilarwadi","Bhilarwadi vehicle in","⇄"],["gate","Vehicle In/ Out","⇄"],
     ["register","In-Out Register","☷"],["documents","Bhilarwadi Documents","▣"]
   ]},
   {section:"DELIVERY", items:[
@@ -386,7 +386,7 @@ async function showApp(user){
   let p;
   try {
     p = await state.supabase.from("user_profiles")
-      .select("username,full_name,active,role_id,location_id,roles(name)").eq("id", user.id).maybeSingle();
+      .select("username,full_name,active,role_id,location_id,all_locations,roles(name)").eq("id", user.id).maybeSingle();
   } catch(err){
     console.error("Could not load the signed-in user's profile.", err);
     await state.supabase.auth.signOut({scope:"local"});
@@ -427,7 +427,6 @@ async function showApp(user){
   const first = firstAllowedPage();
   if(first) navigate(first);
   else $("content").innerHTML = `<div class="panel"><div class="notice"><b>No access</b><p>Your account has no role or permissions yet. Contact Admin.</p></div></div>`;
-  if(state.isAdmin && typeof runDailyDriveBackupOnAdminLogin === "function") setTimeout(runDailyDriveBackupOnAdminLogin, 0);
 }
 
 async function loadPermissions(){

@@ -183,7 +183,7 @@ async function openUserEdit(u){
     <form id="userEditForm" class="form-grid"><div><label>FULL NAME</label><input name="full_name" value="${esc(u.full_name || "")}"></div>
     <div><label>EMAIL ADDRESS</label><input name="email" type="email" value="${esc(u.email || "")}" autocomplete="email"></div>
     <div><label>ROLE</label><select name="role_id">${(roles.data || []).map(r => `<option value="${esc(r.id)}" ${r.id === u.role_id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select></div>
-    <div><label>LOCATION</label><select name="location_id"><option value="">All Locations</option>${locs.filter(l => l.active !== false || l.id === u.location_id).map(l => `<option value="${esc(l.id)}" ${l.id === u.location_id ? "selected" : ""}>${esc(l.location_name)}</option>`).join("")}</select></div>
+    <div><label>LOCATION ACCESS</label><select name="location_id"><option value="ALL" ${u.all_locations ? "selected" : ""}>All Locations</option><option value="" ${!u.all_locations && !u.location_id ? "selected" : ""}>No location access</option>${locs.filter(l => l.active !== false || l.id === u.location_id).map(l => `<option value="${esc(l.id)}" ${!u.all_locations && l.id === u.location_id ? "selected" : ""}>${esc(l.location_name)}</option>`).join("")}</select></div>
     <div><label>STATUS</label><select name="active"><option value="true" ${u.active === false ? "" : "selected"}>Active</option><option value="false" ${u.active === false ? "selected" : ""}>Inactive</option></select></div>
     <div class="full form-actions"><button type="button" class="secondary-btn" id="modalCancel">Cancel</button><button class="primary-btn" type="submit">Save</button></div></form></div></div>`);
   $("modalClose").onclick = closeModal; $("modalCancel").onclick = closeModal;
@@ -197,7 +197,7 @@ async function openUserEdit(u){
         if(credential.error) return toast(credential.error,"error");
       } catch(err){ return toast(err.message || "Unable to update user email.","error"); }
     } else if(!email && oldEmail) return toast("Email address cannot be empty.","error");
-    const patch = {full_name:nzv(f.full_name), role_id:f.role_id || null, location_id:f.location_id || null, active:f.active === "true"};
+    const patch = {full_name:nzv(f.full_name), role_id:f.role_id || null, location_id:f.location_id && f.location_id !== "ALL" ? f.location_id : null, all_locations:f.location_id === "ALL", active:f.active === "true"};
     const r = await state.supabase.from("user_profiles").update(patch).eq("id", u.id).select("id");
     if(r.error) return toast(r.error.message + dbHint(r.error), "error");
     if(!r.data?.length) return toast("Not saved — only Admin can edit users.", "error");

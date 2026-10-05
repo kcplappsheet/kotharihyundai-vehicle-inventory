@@ -21,7 +21,7 @@ function gateLocNames(){
   return names;
 }
 function assignedGateLocation(){
-  if(state.isAdmin) return null;
+  if(state.isAdmin || state.profile?.all_locations) return null;
   const id = state.profile?.location_id;
   return id ? (state.locations || []).find(l => String(l.id) === String(id))?.location_name || "" : "";
 }
@@ -76,16 +76,16 @@ async function renderGate(page){
   if(page === "register") return renderGateRegister();
   if(page === "gate-pass") return renderGatePass();
   const isBhilarwadi = page === "bhilarwadi";
-  const title = isBhilarwadi ? "bhilarwadi vehicle in" : "Vehicle In/ Out";
+  const title = isBhilarwadi ? "Bhilarwadi vehicle in" : "Vehicle In/ Out";
   const gateName = page === "bhilarwadi" ? "Bhilarwadi" : "Branch";
   state.gateSelectedVehicleId = null;
   const showDriver = gateName !== "Bhilarwadi";
   if(state.supabase) await getLocations();
   GATE_DESTINATION_LOCATIONS = [];
-  if(!state.isAdmin && gateName === "Branch" && !assignedGateLocation()){
+  if(!state.isAdmin && gateName === "Branch" && assignedGateLocation() === ""){
     toast("Your assigned location could not be resolved. Contact an administrator.","error");
   }
-  if(state.supabase && !state.isAdmin && gateName === "Branch" && assignedGateLocation()){
+  if(state.supabase && !state.isAdmin && gateName === "Branch" && assignedGateLocation() !== ""){
     const destinations = await state.supabase.rpc("gate_destination_locations");
     if(destinations.error) toast("Could not load OUT destinations. Run the LOCATION_ACCESS_SECURITY section in database.sql, then reload. " + destinations.error.message,"error");
     else if(!Array.isArray(destinations.data)) toast("OUT destinations returned an invalid response. Check the LOCATION_ACCESS_SECURITY SQL function.","error");

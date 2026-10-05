@@ -51,7 +51,7 @@ const dimNum = (n, dim, key, stage) => n ? raw(`<button type="button" class="lin
 const B = t => raw(`<b>${esc(String(t))}</b>`), N = t => B(Number(t).toLocaleString("en-IN")), MS = t => B(moneyShort(t));
 const dashboardFilters = () => ({from:$("dashDateFrom")?.value || "", to:$("dashDateTo")?.value || "", location:$("dashLocation")?.value || ""});
 function dashboardAssignedLocation(){
-  if(state.isAdmin) return null;
+  if(state.isAdmin || state.profile?.all_locations) return null;
   const id = state.profile?.location_id;
   return id ? (state.locations || []).find(l => String(l.id) === String(id))?.location_name || "" : "";
 }

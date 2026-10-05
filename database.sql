@@ -19,21 +19,68 @@ create table if not exists public.locations (
 
 insert into public.locations(location_name, location_code, active) values
 ('Bhilarwadi','BHIL',true),
-('SSR Road','SSRD',true),
-('Kondhwa','KOND',true),
-('Khedshivapur','KHED',true),
+('SSRD','SSRD',true),
 ('Kharadi','KHAR',true),
-('Fatimanagar','FATI',true),
 ('Aundh','AUND',true),
+('Khedshivapur','KHED',true),
 ('Shirur','SHIR',true),
+('Fatimanagar','FATI',true),
+('Kondhwa','KOND',true),
 ('Bhosari','BHOS',true),
 ('Hadapsar','HADA',true)
 on conflict (location_name) do nothing;
 
+-- Migrate the former SSR Road name to SSRD and preserve existing references.
+DO $$
+DECLARE
+  old_location_id uuid;
+  ssrd_location_id uuid;
+BEGIN
+  SELECT id INTO old_location_id
+  FROM public.locations
+  WHERE lower(trim(location_name)) = 'ssr road'
+  LIMIT 1;
+
+  SELECT id INTO ssrd_location_id
+  FROM public.locations
+  WHERE lower(trim(location_name)) = 'ssrd'
+  LIMIT 1;
+
+  IF old_location_id IS NOT NULL THEN
+    IF ssrd_location_id IS NULL THEN
+      UPDATE public.locations
+      SET location_name = 'SSRD', location_code = 'SSRD'
+      WHERE id = old_location_id;
+    ELSE
+      UPDATE public.user_profiles SET location_id = ssrd_location_id
+      WHERE location_id = old_location_id;
+      UPDATE public.vehicles SET location_id = ssrd_location_id
+      WHERE location_id = old_location_id;
+      DELETE FROM public.locations WHERE id = old_location_id;
+    END IF;
+  END IF;
+END $$;
+
+UPDATE public.vehicles
+SET sales_location = 'SSRD'
+WHERE lower(trim(sales_location)) = 'ssr road';
+UPDATE public.vehicles
+SET delivery_location = 'SSRD'
+WHERE lower(trim(delivery_location)) = 'ssr road';
+UPDATE public.gate_movements
+SET location_name = 'SSRD'
+WHERE lower(trim(location_name)) = 'ssr road';
+UPDATE public.deliveries
+SET delivery_location = 'SSRD'
+WHERE lower(trim(delivery_location)) = 'ssr road';
+UPDATE public.vehicle_timeline
+SET location_name = 'SSRD'
+WHERE lower(trim(location_name)) = 'ssr road';
+
 UPDATE public.locations
 SET location_code = CASE lower(trim(location_name))
   WHEN 'bhilarwadi' THEN 'BHIL'
-  WHEN 'ssr road' THEN 'SSRD'
+  WHEN 'ssrd' THEN 'SSRD'
   WHEN 'kondhwa' THEN 'KOND'
   WHEN 'khedshivapur' THEN 'KHED'
   WHEN 'kharadi' THEN 'KHAR'
@@ -44,7 +91,7 @@ SET location_code = CASE lower(trim(location_name))
   WHEN 'hadapsar' THEN 'HADA'
 END
 WHERE lower(trim(location_name)) IN (
-  'bhilarwadi','ssr road','kondhwa','khedshivapur','kharadi',
+  'bhilarwadi','ssrd','kondhwa','khedshivapur','kharadi',
   'fatimanagar','aundh','shirur','bhosari','hadapsar'
 );
 
@@ -254,11 +301,14 @@ create table if not exists public.user_profiles (
   email text,
   role_id uuid references public.roles(id) on delete set null,
   location_id uuid references public.locations(id) on delete set null,
+  all_locations boolean not null default false,
   active boolean not null default true,
   password_display text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS all_locations boolean NOT NULL DEFAULT false;
 
 create unique index if not exists user_profiles_username_uidx on public.user_profiles(lower(username));
 
@@ -937,8 +987,12 @@ CREATE TABLE IF NOT EXISTS public.system_settings (
 INSERT INTO public.system_settings(setting_key,setting_value,description) VALUES
 ('system_name','Kothari Hyundai Vehicle Inventory','Application name'),
 ('currency','INR','Display currency'),
-('date_format','DD-MM-YYYY','Display date format')
+('date_format','DD/MM/YYYY','Display date format')
 ON CONFLICT(setting_key) DO NOTHING;
+
+UPDATE public.system_settings
+SET setting_value='DD/MM/YYYY', description='Display date format'
+WHERE setting_key='date_format';
 
 CREATE TABLE IF NOT EXISTS public.audit_logs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1543,7 +1597,7 @@ NOTIFY pgrst, 'reload schema';
 -- ============================================================
 -- SOURCE: LOCATION_ACCESS_SECURITY.sql
 -- ============================================================
--- Assigned-location users see only their location; only Admin retains all-location access.
+-- Assigned-location users see only their location; OUT destinations are the other active locations.
 CREATE OR REPLACE FUNCTION public.current_user_location_id()
 RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT location_id FROM public.user_profiles
@@ -1558,13 +1612,32 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT l.location_name
   FROM public.locations l
   WHERE l.active IS DISTINCT FROM FALSE
-    AND (public.is_admin() OR l.id <> public.current_user_location_id())
-    AND (public.is_admin() OR EXISTS (
-      SELECT 1 FROM public.user_profiles up
-      WHERE up.id = auth.uid() AND up.active IS NOT FALSE
-        AND up.location_id IS NOT NULL
-    ))
-  ORDER BY l.location_name;
+    AND (
+      public.is_admin()
+      OR EXISTS (
+        SELECT 1
+        FROM public.user_profiles up
+        WHERE up.id = auth.uid()
+          AND up.active IS NOT FALSE
+          AND (
+            up.all_locations
+            OR (up.location_id IS NOT NULL AND l.id <> up.location_id)
+          )
+      )
+    )
+  ORDER BY CASE lower(trim(l.location_name))
+    WHEN 'bhilarwadi' THEN 1
+    WHEN 'ssrd' THEN 2
+    WHEN 'kharadi' THEN 3
+    WHEN 'aundh' THEN 4
+    WHEN 'khedshivapur' THEN 5
+    WHEN 'shirur' THEN 6
+    WHEN 'fatimanagar' THEN 7
+    WHEN 'kondhwa' THEN 8
+    WHEN 'bhosari' THEN 9
+    WHEN 'hadapsar' THEN 10
+    ELSE 100
+  END, l.location_name;
 $$;
 REVOKE ALL ON FUNCTION public.gate_destination_locations() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.gate_destination_locations() TO authenticated;
@@ -1573,13 +1646,14 @@ CREATE OR REPLACE FUNCTION public.location_row_allowed(p_location_id uuid, p_loc
 RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
 DECLARE
   v_location_id uuid;
+  v_all_locations boolean;
   v_location_name text;
   v_active boolean;
 BEGIN
-  SELECT location_id, active INTO v_location_id, v_active
+  SELECT location_id, all_locations, active INTO v_location_id, v_all_locations, v_active
     FROM public.user_profiles WHERE id = auth.uid();
   IF NOT FOUND OR v_active IS FALSE THEN RETURN false; END IF;
-  IF public.is_admin() THEN RETURN true; END IF;
+  IF public.is_admin() OR v_all_locations THEN RETURN true; END IF;
   IF v_location_id IS NULL THEN RETURN false; END IF;
   IF p_location_id = v_location_id THEN RETURN true; END IF;
   IF p_location_id IS NOT NULL OR p_location_name IS NULL THEN RETURN false; END IF;
