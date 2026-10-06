@@ -54,24 +54,39 @@ function renderBackupRestore(){
   if(!state.isAdmin){ renderDenied(); return; }
   $("content").innerHTML = `<div class="panel backup-panel">
     <div class="panel-head"><h3>Backup & Restore</h3></div>
-    <p class="form-help">Backup ZIP मध्ये application data आणि settings असतील. Profile display-passwords, photos, PDFs, gate-pass files आणि Supabase login passwords backup मध्ये नसतील. ZIP password-protected नाही; Google Drive मधील access private ठेवा.</p>
+    <p class="form-help">सर्व उपलब्ध application records, user profiles, roles आणि settings backup मध्ये घेतले जातील. Supabase login passwords, photos, PDFs आणि gate-pass files backup/restore होत नाहीत. User accounts restore करण्यासाठी त्यांचे Supabase Auth accounts आधीपासून अस्तित्वात असणे आवश्यक आहे.</p>
     <section class="backup-section">
-      <h4>Google Drive backup</h4>
-      <p class="form-help">1. Download Backup ZIP. 2. ZIP तयार झाल्यावर Open Google Drive क्लिक करा. 3. Google Drive मध्ये ZIP manually upload करा.</p>
-      <div class="backup-actions"><button class="primary-btn" type="button" id="backupZipDownload">⬇ Download Backup ZIP</button><a class="secondary-btn" id="openGoogleDrive" href="https://drive.google.com/drive/my-drive" target="_blank" rel="noopener">↗ Open Google Drive</a></div>
-      <div id="backupZipMessage" class="message" aria-live="polite"></div>
+      <h4>Excel Backup & Restore</h4>
+      <p class="form-help">Excel backup मध्ये user profiles चे display-password field passphrase ने encrypt केले जाते. हा passphrase सुरक्षित ठेवा; त्याशिवाय अशा workbook चे restore होणार नाही.</p>
+      <label class="backup-label" for="backupExportPass">Excel backup passphrase (minimum 12 characters)</label><input id="backupExportPass" type="password" autocomplete="new-password">
+      <label class="backup-label" for="backupExportConfirm">Confirm passphrase</label><input id="backupExportConfirm" type="password" autocomplete="new-password">
+      <div class="backup-actions"><button class="primary-btn" type="button" id="backupDownload">⬇ Download Excel Backup</button></div>
+      <div id="backupExcelMessage" class="message" aria-live="polite"></div>
+      <label for="backupFile">Restore from Excel workbook (.xlsx)</label><input id="backupFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+      <label class="backup-label" for="backupRestorePass">Excel backup passphrase (if requested)</label><input id="backupRestorePass" type="password" autocomplete="current-password">
+      <div class="backup-actions"><button class="secondary-btn" type="button" id="backupPreviewButton">Validate Excel Backup</button><button class="primary-btn" type="button" id="backupRestore" disabled>Restore Excel Backup</button></div>
+      <div id="backupMessage" class="message" aria-live="polite"></div><div id="backupPreview"></div>
     </section>
     <section class="backup-section">
-      <h4>Restore backup</h4>
-      <p class="form-help">Select a backup ZIP or legacy Excel workbook. ZIP files include a restorable workbook. Restore adds missing rows and updates matching rows; it never deletes existing records.</p>
-      <label for="backupFile">Select backup (.zip or .xlsx)</label><input id="backupFile" type="file" accept=".zip,.xlsx,application/zip,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
-      <label class="backup-label" for="backupRestorePass">Legacy Excel backup passphrase (only if requested)</label><input id="backupRestorePass" type="password" autocomplete="current-password">
-      <div class="backup-actions"><button class="secondary-btn" type="button" id="backupPreviewButton">Validate Backup</button><button class="primary-btn" type="button" id="backupRestore" disabled>Restore Backup</button></div>
-      <div id="backupMessage" class="message" aria-live="polite"></div><div id="backupPreview"></div>
+      <h4>Google Drive Backup & Restore</h4>
+      <p class="form-help">Google Drive backup मध्ये सर्व user profiles आणि settings असतात; profile display-passwords, Supabase login passwords आणि attachments समाविष्ट नसतात. Admin च्या Google account ने sign in करा, backup dated folder मध्ये save होईल; उपलब्ध backup निवडून validate व restore करता येतो.</p>
+      <div class="backup-actions"><button class="primary-btn" type="button" id="backupDriveUpload">☁ Backup to Google Drive</button><button class="secondary-btn" type="button" id="backupDriveList">Find Drive Backups</button><select id="backupDriveSelect" aria-label="Select Google Drive backup"><option value="">Select a Google Drive backup</option></select><button class="secondary-btn" type="button" id="backupDriveLoad">Validate Selected Backup</button><button class="primary-btn" type="button" id="backupDriveRestore" disabled>Restore from Google Drive</button><a class="secondary-btn" id="openGoogleDrive" href="https://drive.google.com/drive/my-drive" target="_blank" rel="noopener">↗ Open Google Drive</a></div>
+      <div id="driveBackupMessage" class="message" aria-live="polite"></div>
+      <div id="driveRestoreMessage" class="message" aria-live="polite"></div><div id="driveRestorePreview"></div>
     </section></div>`;
-  $("backupZipDownload").addEventListener("click", createZipBackup);
+  $("backupDownload").addEventListener("click", createDataBackup);
   $("backupPreviewButton").addEventListener("click", previewDataBackup);
   $("backupRestore").addEventListener("click", restoreDataBackup);
+  $("backupDriveUpload").addEventListener("click", () => createDriveBackup());
+  $("backupDriveList").addEventListener("click", listDriveBackups);
+  $("backupDriveLoad").addEventListener("click", loadDriveBackupForRestore);
+  $("backupDriveRestore").addEventListener("click", restoreDriveBackup);
+  $("backupDriveSelect").addEventListener("change", () => {
+    DRIVE_RESTORE_FILE = null;
+    DRIVE_RESTORE_PREVIEW = null;
+    $("backupDriveRestore").disabled = true;
+    $("driveRestorePreview").replaceChildren();
+  });
   $("backupFile").addEventListener("change", () => {
     RESTORE_PREVIEW = null;
     $("backupRestore").disabled = true;
@@ -85,6 +100,14 @@ function renderBackupRestore(){
     $("backupRestore").disabled = true;
     $("backupPreview").replaceChildren();
   });
+  $("backupExportPass").addEventListener("input", () => { $("backupExcelMessage").textContent = ""; });
+  $("backupExportConfirm").addEventListener("input", () => { $("backupExcelMessage").textContent = ""; });
+}
+function backupExcelStatus(message, type = ""){
+  const el = $("backupExcelMessage");
+  if(!el) return;
+  el.textContent = message;
+  el.className = "message" + (type ? " " + type : "");
 }
 function backupZipStatus(message, type = ""){
   const el = $("backupZipMessage");
@@ -522,17 +545,27 @@ async function createDataBackup(){
   if(!state.isAdmin) return toast("Only Admin can create backups.","error");
   if(!window.XLSX) return toast("Excel library not loaded (check internet).","error");
   const passphrase = $("backupExportPass").value, confirmation = $("backupExportConfirm").value;
-  if(passphrase.length < 12) return backupStatus("Enter a backup passphrase of at least 12 characters.", "error");
-  if(passphrase !== confirmation) return backupStatus("Backup passphrases do not match.", "error");
+  if(passphrase.length < 12) return backupExcelStatus("Enter a backup passphrase of at least 12 characters.", "error");
+  if(passphrase !== confirmation) return backupExcelStatus("Backup passphrases do not match.", "error");
   btn.disabled = true;
+  backupExcelStatus("Collecting all application data, users and settings…");
   try {
     const salt = backupRandom(16), encryptionKey = await deriveBackupKey(passphrase, salt);
     const {wb, contents} = await collectBackupContents(btn, encryptionKey, salt);
-    XLSX.writeFile(wb, `kothari-hyundai-backup-${todayLocal()}.xlsx`);
+    const fileName = `kothari-hyundai-backup-${todayLocal()}.xlsx`;
+    XLSX.writeFile(wb, fileName);
     logAudit("CREATE_BACKUP","administration","backup",null,{tables:contents.length, records:contents.reduce((n,x) => n + x.rows.length,0)});
+    backupExcelStatus(`Excel backup downloaded: ${fileName}.`, "success");
     toast("Excel backup downloaded.","success");
-  } catch(err){ backupStatus("Backup failed: " + (err.message || err), "error"); toast("Backup failed: " + (err.message || err),"error"); }
-  finally { btn.disabled = false; btn.textContent = "⬇ Download Excel Backup"; $("backupExportPass").value = ""; $("backupExportConfirm").value = ""; }
+  } catch(err){
+    backupExcelStatus("Backup failed: " + (err.message || err), "error");
+    toast("Backup failed: " + (err.message || err),"error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "⬇ Download Excel Backup";
+    $("backupExportPass").value = "";
+    $("backupExportConfirm").value = "";
+  }
 }
 async function createFolderWiseBackup(){
   const btn = $("backupFolderDownload");
@@ -666,6 +699,10 @@ async function listDriveBackups(){
   if(!state.isAdmin) return toast("Only Admin can access backup tools.","error");
   btn.disabled = true;
   $("backupDriveSelect").replaceChildren(new Option("Select a Google Drive backup",""));
+  DRIVE_RESTORE_FILE = null;
+  DRIVE_RESTORE_PREVIEW = null;
+  $("backupDriveRestore").disabled = true;
+  $("driveRestorePreview").replaceChildren();
   DRIVE_BACKUP_FOLDERS = new Map();
   try {
     driveRestoreStatus("Searching Google Drive backups…");
@@ -711,7 +748,7 @@ async function loadDriveBackupForRestore(){
     driveRestoreStatus("Validating Google Drive backup…");
     const data = await parseBackupWorkbook(file, "");
     DRIVE_RESTORE_FILE = file;
-    DRIVE_RESTORE_PREVIEW = {file, counts:data.map(x => [x.table.name, x.rows.length])};
+    DRIVE_RESTORE_PREVIEW = {file, backupId:$("backupDriveSelect").value, counts:data.map(x => [x.table.name, x.rows.length])};
     const total = data.reduce((n,x) => n + x.rows.length, 0);
     $("driveRestorePreview").innerHTML = `<div class="table-wrap">${table(["Table","Rows to add/update"],DRIVE_RESTORE_PREVIEW.counts)}</div><p class="form-help">${total.toLocaleString("en-IN")} rows validated from Google Drive. Current records not present in this workbook will remain unchanged.</p>`;
     driveRestoreStatus(`Google Drive backup validated: ${total.toLocaleString("en-IN")} rows ready.`, "success");
@@ -791,7 +828,7 @@ async function previewDataBackup(){
   const sourceFile = $("backupFile").files?.[0];
   const btn = $("backupPreviewButton");
   RESTORE_PREVIEW = null; $("backupRestore").disabled = true; $("backupPreview").innerHTML = "";
-  if(!sourceFile) return backupStatus("Select a backup ZIP or Excel workbook first.", "error");
+  if(!sourceFile) return backupStatus("Select an Excel workbook first.", "error");
   if(!window.XLSX) return backupStatus("Excel library not loaded (check internet).", "error");
   btn.disabled = true; backupStatus("Opening and validating backup…");
   try {
@@ -815,13 +852,35 @@ async function restoreBackupSource(){
   const status = backupStatus;
   const button = $("backupRestore");
   const passphrase = $("backupRestorePass").value;
-  if(!preview || preview.sourceFile !== sourceFile) return status("Validate the selected backup before restoring.", "error");
-  const total = preview.counts.reduce((n,x) => n + x[1], 0);
-  if(!confirm(`Restore ${total.toLocaleString("en-IN")} rows from this backup? Matching rows will be updated; existing extra rows will not be deleted. Attachments and account passwords are not restored.`)) return;
+  if(!preview || preview.sourceFile !== sourceFile) return status("Validate the selected Excel backup before restoring.", "error");
+  try {
+    const data = await parseBackupWorkbook(preview.file, passphrase);
+    await restoreBackupRows(data, button, status, $("backupPreview"), "Excel");
+  } catch(err){
+    status("Excel backup restore failed: " + (err.message || err), "error");
+    toast("Excel backup restore failed: " + (err.message || err),"error");
+  }
+}
+async function restoreDriveBackup(){
+  if(!state.isAdmin) return toast("Only Admin can restore backups.","error");
+  const preview = DRIVE_RESTORE_PREVIEW;
+  const backupId = $("backupDriveSelect").value;
+  const button = $("backupDriveRestore");
+  if(!preview || preview.file !== DRIVE_RESTORE_FILE || preview.backupId !== backupId) return driveRestoreStatus("Find and validate the selected Google Drive backup before restoring.", "error");
+  try {
+    const data = await parseBackupWorkbook(preview.file, "");
+    await restoreBackupRows(data, button, driveRestoreStatus, $("driveRestorePreview"), "Google Drive");
+  } catch(err){
+    driveRestoreStatus("Google Drive restore failed: " + (err.message || err), "error");
+    toast("Google Drive restore failed: " + (err.message || err),"error");
+  }
+}
+async function restoreBackupRows(data, button, status, previewElement, source){
+  const total = data.reduce((n,item) => n + item.rows.length, 0);
+  if(!confirm(`Restore ${total.toLocaleString("en-IN")} rows from this ${source} backup? Matching rows will be updated; existing extra rows will not be deleted. Attachments and Supabase login passwords are not restored.`)) return;
   button.disabled = true;
   let completed = 0;
   try {
-    const data = await parseBackupWorkbook(preview.file, passphrase);
     for(const {table:meta, rows} of data){
       for(let from = 0; from < rows.length; from += BACKUP_BATCH_SIZE){
         const part = rows.slice(from, from + BACKUP_BATCH_SIZE);
@@ -831,20 +890,22 @@ async function restoreBackupSource(){
         completed += part.length;
       }
     }
-    const vehicles = data.find(x => x.table.name === "vehicles")?.rows || [];
+    const vehicles = data.find(item => item.table.name === "vehicles")?.rows || [];
     for(let from = 0; from < vehicles.length; from += BACKUP_BATCH_SIZE){
       const part = vehicles.slice(from, from + BACKUP_BATCH_SIZE);
       status(`Restoring vehicle stock state: ${Math.min(from + part.length, vehicles.length)}/${vehicles.length}…`);
       const {error} = await state.supabase.from("vehicles").upsert(part);
       if(error) throw new Error(`vehicles: ${error.message}`);
     }
-    logAudit("RESTORE_BACKUP","administration","backup",null,{records:completed});
+    logAudit("RESTORE_BACKUP","administration","backup",null,{records:completed,source});
     state.locations = null; VCACHE.rows = null;
     status(`Restore completed: ${completed.toLocaleString("en-IN")} rows added or updated. No existing rows were deleted.`, "success");
-    toast("Backup restore completed.","success");
-    $("backupPreview").innerHTML += `<p class="message success">Restore completed. Refreshing application data…</p>`;
+    toast(`${source} backup restore completed.`,"success");
+    previewElement.innerHTML += `<p class="message success">Restore completed. Refreshing application data…</p>`;
+    if(source === "Excel") $("backupRestorePass").value = "";
     RESTORE_PREVIEW = null;
-    $("backupRestorePass").value = "";
+    DRIVE_RESTORE_PREVIEW = null;
+    DRIVE_RESTORE_FILE = null;
     setTimeout(() => window.location.reload(), 1800);
   } catch(err){
     status(`Restore stopped after ${completed.toLocaleString("en-IN")} rows: ${err.message || err}. You can safely retry this workbook; rows are upserted.`, "error");
