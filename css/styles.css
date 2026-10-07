@@ -239,9 +239,11 @@ th[data-sort-direction="desc"]::after{content:" \25BC";font-size:9px;color:#0b63
 /* Top bar: heading on the left, VIN search right beside it */
 .topbar{justify-content:flex-start;gap:16px}
 .top-title{min-width:0;flex:0 0 auto;text-align:left}
-.top-search{display:flex;flex:1 1 260px;max-width:440px;min-width:150px;position:relative}
+.global-search-group{display:flex;align-items:center;gap:8px;flex:1 1 340px;max-width:530px;min-width:230px}
+.top-search{display:flex;flex:1 1 auto;max-width:none;min-width:0;position:relative}
 .top-search input{flex:1;min-width:0;height:38px;border:1px solid #d0d5dd;border-right:0;border-radius:8px 0 0 8px;padding:0 12px;font-size:14px;background:#fff}
 .top-search button{width:42px;border:1px solid #002c5f;background:#002c5f;color:#fff;border-radius:0 8px 8px 0;font-size:17px}
+.global-search-scan{height:38px;white-space:nowrap}
 .global-vin-suggestions{position:absolute;z-index:40;top:calc(100% + 5px);left:0;width:max(100%,380px);max-height:340px;overflow:auto;border:1px solid #d0d5dd;border-radius:8px;background:#fff;box-shadow:0 12px 28px rgba(16,24,40,.18)}
 .top-search .global-vin-suggestion{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 11px;border:0;border-bottom:1px solid #eef0f3;border-radius:0;background:#fff;color:#172033;text-align:left;font-size:12px}
 .top-search .global-vin-suggestion:last-child{border-bottom:0}
@@ -251,7 +253,7 @@ th[data-sort-direction="desc"]::after{content:" \25BC";font-size:9px;color:#0b63
 .global-vin-main small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#475467;font-size:11px}
 .global-vin-suggestion-empty{padding:10px 12px;color:#475467;font-size:12px}
 .top-actions{margin-left:auto}
-@media(max-width:760px){.top-search{order:5;flex:1 1 100%;max-width:none}.topbar{height:auto;min-height:74px;flex-wrap:wrap;padding-top:8px;padding-bottom:8px}.top-title p{display:none}}
+@media(max-width:760px){.global-search-group{order:5;flex:1 1 100%;max-width:none;min-width:0}.top-search{flex:1 1 auto;max-width:none}.topbar{height:auto;min-height:74px;flex-wrap:wrap;padding-top:8px;padding-bottom:8px}.top-title p{display:none}}
 
 /* Filter button + panel (used on every list) */
 .filter-wrap{display:flex;gap:8px;align-items:center}

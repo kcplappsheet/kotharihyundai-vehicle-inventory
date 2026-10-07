@@ -16,15 +16,23 @@ const IMPORT_COLUMNS = {
   SALES:["bill_date","vin","engine_no","customer_name","bill_no","sales_location","model","variant","color","total_invoice_value"],
   DELIVERY:["main_dealer","dealer_code","excise_invoice_no","hmi_invoice_no","order_date","order_no","hmi_invoice_date","hmi_invoice_amount","bhilarwadi_in_date","model","variant","color","vin","basic_price","freight_insurance","total_invoice_value","gst","comp_cess","engine_no","finance_company","delivery_date","delivery_location","bill_date","bill_no","customer_name"]
 };
+const IMPORT_SOURCE_COLUMNS = {
+  ORDER: IMPORT_COLUMNS.ORDER,
+  PURCHASE: ["Vin No", ...IMPORT_COLUMNS.PURCHASE],
+  SALES: ["Vin No", ...IMPORT_COLUMNS.SALES],
+  DELIVERY: ["Vin No", ...IMPORT_COLUMNS.DELIVERY]
+};
 const DELIVERY_COLUMN_LABELS = Object.fromEntries(IMPORT_COLUMNS.DELIVERY.map(k => [k,
   k === "bhilarwadi_in_date" ? "bhilarwadi vehicle Receipt Dt" : k === "gst" ? "GST" : k === "delivery_location" ? FIELD_HEADING.sales_location : FIELD_HEADING[k]
 ]));
 const importColumnLabel = (key, column) => key === "DELIVERY" ? DELIVERY_COLUMN_LABELS[column] : FIELD_HEADING[column];
+const importSourceHeading = (key, column) => column === "Vin No" ? column : importColumnLabel(key, column);
+const importIsSerialHeader = (key, header) => ["PURCHASE","SALES","DELIVERY"].includes(key) && String(header).trim() === "Vin No";
 function downloadImportTemplate(){
   if(!window.XLSX) return toast("Excel library not loaded (check internet).","error");
   const wb = XLSX.utils.book_new();
   [["ORDER","Order"],["PURCHASE","Purchase"],["SALES","Sales"],["DELIVERY","Delivery"]].forEach(([key,sheet]) => {
-    const headings = IMPORT_COLUMNS[key].map(column => key === "DELIVERY" ? DELIVERY_COLUMN_LABELS[column] : FIELD_HEADING[column]);
+    const headings = IMPORT_SOURCE_COLUMNS[key].map(column => importSourceHeading(key,column));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([headings]), sheet);
   });
   XLSX.writeFile(wb, "kothari-hyundai-import-template.xlsx");
@@ -74,6 +82,11 @@ const IMPORT_HEADER_MAP = (() => {                            // normalised Exce
   m.set(importNorm("Customer's Name"), ["customer_name", "text"]);
   return m;
 })();
+function importHeaderHit(key, header){
+  if(importIsSerialHeader(key,header)) return null;
+  const hit = IMPORT_HEADER_MAP.get(importNorm(header));
+  return key === "DELIVERY" && hit?.[0] === "sales_location" ? ["delivery_location","text"] : hit;
+}
 function importDate(v){
   if(v instanceof Date) return isNaN(v) ? null : `${v.getFullYear()}-${String(v.getMonth()+1).padStart(2,"0")}-${String(v.getDate()).padStart(2,"0")}`;
   const s = String(v ?? "").trim();
@@ -85,10 +98,10 @@ function importDate(v){
 function importNum(v){ const n = Number(String(v ?? "").replace(/[^\d.\-]/g,"")); return isFinite(n) ? n : 0; }
 
 /** One Excel row -> record keyed by database column names (typed, blanks removed). */
-function importMap(raw){
+function importMap(raw, key){
   const r = {};
   for(const [header, value] of Object.entries(raw)){
-    const hit = IMPORT_HEADER_MAP.get(importNorm(header)); if(!hit) continue;
+    const hit = importHeaderHit(key,header); if(!hit) continue;
     const [k, type] = hit;
     if(value instanceof Date ? isNaN(value) : isBlank(String(value).trim())) continue;
     if(k in r) continue;                                       // first matching header wins
@@ -237,20 +250,34 @@ async function previewBulkImport(){
 
   bulkImportRows = BULK_IMPORT_SHEETS.map(([key,name]) => {
     const raw = XLSX.utils.sheet_to_json(sheetByKey.get(key), {defval:""});
-    const rows = importDedupe(raw.map(row => key === "SALES" ? importSalesOnly(importMap(row)) : importMap(row))
+    const rows = importDedupe(raw.map(row => key === "SALES" ? importSalesOnly(importMap(row,key)) : importMap(row,key))
       .filter(row => row.order_no || row.vin), row => key === "ORDER" ? row.order_no : row.vin);
     const keyField = key === "ORDER" ? "order_no" : "vin";
-    const hasKeyHeader = raw.length && Object.keys(raw[0]).some(header => IMPORT_HEADER_MAP.get(importNorm(header))?.[0] === keyField);
+    const requiredHeaders = IMPORT_COLUMNS[key];
+    const headers = raw.length ? Object.keys(raw[0]).filter(header => !importIsSerialHeader(key,header)) : [];
+    const presentHeaders = new Set(headers.map(header => importHeaderHit(key,header)?.[0]).filter(Boolean));
+    const missingHeaders = requiredHeaders.filter(column => !presentHeaders.has(column));
     const errors = [];
-    if(!hasKeyHeader) errors.push(`Required ${keyField === "order_no" ? "Order No" : "VIN"} column heading is missing.`);
-    const unmapped = raw.length ? Object.keys(raw[0]).filter(header => !IMPORT_HEADER_MAP.has(importNorm(header)) && importNorm(header) !== "s no" && importNorm(header) !== "no") : [];
+    if(missingHeaders.length) errors.push(`Required columns missing: ${missingHeaders.map(column => importColumnLabel(key,column)).join(", ")}.`);
+    const hasKeyHeader = headers.some(header => importHeaderHit(key,header)?.[0] === keyField);
+    if(!hasKeyHeader && !missingHeaders.length) errors.push(`Required ${keyField === "order_no" ? "Order No" : "VIN"} column heading is missing.`);
+    const unmapped = headers.filter(header => !importHeaderHit(key,header) && importNorm(header) !== "s no" && importNorm(header) !== "no");
     if(state.settings?.imp?.[key] === false && rows.length) errors.push("This import is turned off in Import Configuration.");
-    return {key,name,rows,rawCount:raw.length,missingKey:rows.filter(row => !row[keyField]).length,unmapped,errors};
+    return {key,name,rows,rawCount:raw.length,missingKey:rows.filter(row => !row[keyField]).length,missingHeaders,unmapped,errors};
   });
   const errors = bulkImportRows.flatMap(sheet => sheet.errors.map(error => `${sheet.name}: ${error}`));
+  const bulkStatusBadge = sheet => {
+    if(!sheet.errors.length) return `<span class="badge ok">Ready</span>`;
+    const missingKey = sheet.missingHeaders?.length || sheet.errors.some(error => /required .*column.*(heading|columns).*missing/i.test(error));
+    const hasUnmapped = !!sheet.unmapped.length;
+    if(missingKey && hasUnmapped) return `<span class="badge warn">Missing Key</span>`;
+    if(missingKey) return `<span class="badge warn">Missing Key</span>`;
+    if(hasUnmapped) return `<span class="badge info">Unmapped</span>`;
+    return `<span class="badge neutral">Blocked</span>`;
+  };
   preview.innerHTML = table(["Sheet","Rows in sheet","Importable rows","Missing key rows","Unmapped headings","Status"], bulkImportRows.map(sheet => [
     sheet.name,sheet.rawCount,sheet.rows.length,sheet.missingKey,sheet.unmapped.join(", ") || "-",
-    sheet.errors.length ? sheet.errors.join(" ") : "Ready"
+    bulkStatusBadge(sheet)
   ]));
   msg.textContent = errors.length ? errors.join(" ") : `All four sheets are ready from ${file.name}. Import will run in Order → Purchase → Sales → Delivery sequence.`;
   msg.className = errors.length ? "message error" : "message success";
@@ -365,7 +392,7 @@ async function renderImportForm(page, target){
     SALES: "Only <b>Tally Invoice Date, VIN, Customer Name, Tally Invoice No and Tally Location</b> are imported; <b>Engine No, Model, Variant, Color and Total Invoice value</b> are fetched from the <b>Purchase report</b>. Matching VINs update their Sales details; Delivered vehicles stay Delivered. Rows whose VIN is not in the Purchase report are ignored.",
     DELIVERY: "Delivery rows are accepted only for vehicles in <b>Tally Done</b> status. Rows without Tally completion are rejected with the current vehicle status; rows without a matching vehicle or delivery date are also rejected."
   }[t.key];
-  const columns = IMPORT_COLUMNS[t.key].map(column => importColumnLabel(t.key,column)).join(", ");
+  const columns = IMPORT_SOURCE_COLUMNS[t.key].map(column => importSourceHeading(t.key,column)).join(", ");
   target.innerHTML = `<div class="panel import-panel"><div class="panel-head"><h3>${esc(t.title)}</h3></div>
     <p class="form-help"><b>Columns:</b> ${esc(columns)}</p><p class="form-help">${rule}</p>
     <div class="dropzone">${importFilePickerMarkup("fileInput",".csv,.xlsx,.xls")}<div><button class="secondary-btn" id="importPreview" type="button">Preview</button> <button class="primary-btn" id="importGo" type="button" disabled>Import</button></div></div>
@@ -383,8 +410,11 @@ async function importPreviewFile(page){
   try { const wb = XLSX.read(await f.arrayBuffer(), {type:"array", cellDates:true}); raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:""}); }
   catch { msg.textContent = "This file could not be read. Upload the original .xlsx / .csv report."; msg.className = "message error"; return; }
   const key = t.key === "SALES" ? r => r.vin : t.key === "ORDER" ? r => r.order_no : r => r.vin;
-  importRows = importDedupe(raw.map(x => t.key === "SALES" ? importSalesOnly(importMap(x)) : importMap(x)).filter(r => r.order_no || r.vin), key);
-  const unmapped = raw.length ? Object.keys(raw[0]).filter(h => !IMPORT_HEADER_MAP.has(importNorm(h)) && importNorm(h) !== "s no" && importNorm(h) !== "no") : [];
+  importRows = importDedupe(raw.map(x => t.key === "SALES" ? importSalesOnly(importMap(x,t.key)) : importMap(x,t.key)).filter(r => r.order_no || r.vin), key);
+  const headers = raw.length ? Object.keys(raw[0]).filter(header => !importIsSerialHeader(t.key,header)) : [];
+  const presentHeaders = new Set(headers.map(header => importHeaderHit(t.key,header)?.[0]).filter(Boolean));
+  const missingHeaders = IMPORT_COLUMNS[t.key].filter(column => !presentHeaders.has(column));
+  const unmapped = headers.filter(h => !importHeaderHit(t.key,h) && importNorm(h) !== "s no" && importNorm(h) !== "no");
   const bad = importRows.filter(r => !key(r)).length;
   let info = `${importRows.length} rows read.`;
   if(t.key === "ORDER"){
@@ -400,8 +430,9 @@ async function importPreviewFile(page){
     else info += t.key === "PURCHASE" ? ` ${hit} match existing stock, ${importRows.length - hit} new.` : ` ${hit} already in system.`;
   } catch(err){ info += " " + (importMissingColumn(err) ? SQL_HINT : "(Could not check existing stock: " + (err.message || err) + ")"); }
   if(bad) info += ` ${bad} rows have no ${t.key === "ORDER" ? "Order No" : "VIN"} and will be skipped.`;
+  if(missingHeaders.length) info += ` Required columns missing: ${missingHeaders.map(column => importColumnLabel(t.key,column)).join(", ")}.`;
   if(unmapped.length) info += ` Ignored columns: ${unmapped.join(", ")}.`;
-  msg.textContent = info; msg.className = "message" + (bad ? " error" : " success");
+  msg.textContent = info; msg.className = "message" + (bad || missingHeaders.length ? " error" : " success");
   const orderCols = IMPORT_COLUMNS.ORDER, purchaseCols = IMPORT_COLUMNS.PURCHASE, salesCols = IMPORT_COLUMNS.SALES;
   const shown = IMPORT_COLUMNS[t.key];
   const matchHead = t.key === "SALES" ? ["Purchase match","After import"] : t.key === "DELIVERY" ? ["Vehicle match","After import"] : [];
@@ -410,7 +441,7 @@ async function importPreviewFile(page){
       const vehicle = ex?.byVin.get(r.vin);
       if(c === "bhilarwadi_in_date") return fmtD(deliveryInDates.get(r.vin));
       if(c === "delivery_date") return fmtD(r.delivery_date);
-      if(c === "delivery_location") return vehicle?.sales_location || r.delivery_location || "-";
+      if(c === "delivery_location") return r.delivery_location || vehicle?.sales_location || "-";
       if(c === "bill_date") return fmtD(vehicle?.bill_date || r.bill_date);
       if(c === "gst") return money(vehicle ? Number(vehicle.igst || 0) + Number(vehicle.cgst || 0) + Number(vehicle.sgst || 0) : r.gst);
       if(vehicle && c !== "vin") return fmtCell(FIELD_TYPE[c] || "text", vehicle[c] ?? r[c]);
@@ -422,7 +453,7 @@ async function importPreviewFile(page){
     }), ...(t.key === "SALES" ? (() => { const p = ex?.byVin.get(r.vin), ok = importHasPurchase(p);
       return [ok ? "✓ Found" : "✗ Not in Purchase report", !ok ? "Ignored" : vStage(p) === "delivered" ? "Delivered (status kept)" : "Tally Done"]; })()
       : t.key === "DELIVERY" ? (() => { const vehicle = ex?.byVin.get(r.vin), found = !!vehicle, eligible = found && vStage(vehicle) === "bill"; return [!found ? "✗ VIN not found" : !eligible ? `✗ Tally incomplete (${vehicle.status || "Unknown"})` : "✓ Tally Done", !found ? "Ignored" : !eligible ? "Complete Sales/Tally first" : r.delivery_date ? "Will mark Delivered" : "Missing delivery date"]; })() : [])]));
-  $("importGo").disabled = !importRows.length;
+  $("importGo").disabled = !importRows.length || !!missingHeaders.length;
 }
 async function importInsertRows(rows, res, onRowComplete){
   const sb = state.supabase;
@@ -463,7 +494,7 @@ async function importRunRows(key, rows, onProgress){
       if(r.delivery_no) record.delivery_no = r.delivery_no;
       const deliveryValues = {
         delivery_date:r.delivery_date,
-        delivery_location:vehicle.sales_location || "",
+        delivery_location:r.delivery_location || vehicle.sales_location || "",
         customer_name:vehicle.customer_name || "",
         bill_no:vehicle.bill_no || "",
         finance_company:vehicle.finance_company || "",
@@ -537,12 +568,14 @@ async function importRunRows(key, rows, onProgress){
       updates.push({id:cur.id, patch:importPayload(r, "PURCHASE", movable ? "In Transit" : ""), moved:movable && curSt === "pending order"});
     }
   }
+  // Bulk imports should be processed row-by-row so each vehicle update is committed
+  // in sequence and does not race with the next record during the same upload.
   for(const part of importChunks(updates, 10)){
-    await Promise.all(part.map(async u => {
+    for(const u of part){
       const x = await importWrite(b => sb.from("vehicles").update(b).eq("id", u.id), u.patch);
       if(x.error){ res.failed++; res.firstError ||= x.error.message; } else { res.updated++; if(u.moved) res.moved++; }
       rowComplete();
-    }));
+    }
   }
   await importInsertRows(fresh, res, rowComplete);
   return res;

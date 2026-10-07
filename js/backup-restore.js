@@ -69,8 +69,9 @@ function renderBackupRestore(){
     </section>
     <section class="backup-section">
       <h4>Google Drive Backup & Restore</h4>
-      <p class="form-help">Google Drive backup मध्ये सर्व user profiles आणि settings असतात; profile display-passwords, Supabase login passwords आणि attachments समाविष्ट नसतात. Admin च्या Google account ने sign in करा, backup dated folder मध्ये save होईल; उपलब्ध backup निवडून validate व restore करता येतो.</p>
-      <div class="backup-actions"><button class="primary-btn" type="button" id="backupDriveUpload">☁ Backup to Google Drive</button><button class="secondary-btn" type="button" id="backupDriveList">Find Drive Backups</button><select id="backupDriveSelect" aria-label="Select Google Drive backup"><option value="">Select a Google Drive backup</option></select><button class="secondary-btn" type="button" id="backupDriveLoad">Validate Selected Backup</button><button class="primary-btn" type="button" id="backupDriveRestore" disabled>Restore from Google Drive</button><a class="secondary-btn" id="openGoogleDrive" href="https://drive.google.com/drive/my-drive" target="_blank" rel="noopener">↗ Open Google Drive</a></div>
+      <p class="form-help">Google Drive backup मध्ये सर्व user profiles आणि settings असतात; profile display-passwords, Supabase login passwords आणि attachments समाविष्ट नसतात. Admin च्या Google account ने sign in करा. Backup folder उघडा, निवडलेला backup download करा किंवा Excel backup file upload करा. Restore करण्यापूर्वी backup validate करा.</p>
+      <div class="backup-actions"><button class="primary-btn" type="button" id="backupDriveUpload">☁ Backup to Google Drive</button><button class="secondary-btn" type="button" id="backupDriveList">Find Drive Backups</button><select id="backupDriveSelect" aria-label="Select Google Drive backup"><option value="">Select a Google Drive backup</option></select><button class="secondary-btn" type="button" id="backupDriveDownload" disabled>⬇ Download Selected</button><button class="secondary-btn" type="button" id="backupDriveLoad">Validate Selected Backup</button><button class="primary-btn" type="button" id="backupDriveRestore" disabled>Restore from Google Drive</button><a class="secondary-btn" id="openGoogleDrive" href="https://drive.google.com/drive/my-drive" target="_blank" rel="noopener">↗ View Backup Folder</a></div>
+      <div class="backup-actions"><input id="backupDriveFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-label="Select Excel backup to upload to Google Drive"><button class="secondary-btn" type="button" id="backupDriveUploadFile" disabled>⬆ Upload Backup File</button></div>
       <div id="driveBackupMessage" class="message" aria-live="polite"></div>
       <div id="driveRestoreMessage" class="message" aria-live="polite"></div><div id="driveRestorePreview"></div>
     </section></div>`;
@@ -79,12 +80,19 @@ function renderBackupRestore(){
   $("backupRestore").addEventListener("click", restoreDataBackup);
   $("backupDriveUpload").addEventListener("click", () => createDriveBackup());
   $("backupDriveList").addEventListener("click", listDriveBackups);
+  $("backupDriveDownload").addEventListener("click", downloadSelectedDriveBackup);
+  $("backupDriveFile").addEventListener("change", () => {
+    $("backupDriveUploadFile").disabled = !$("backupDriveFile").files?.[0];
+    driveBackupStatus("");
+  });
+  $("backupDriveUploadFile").addEventListener("click", uploadSelectedBackupFile);
   $("backupDriveLoad").addEventListener("click", loadDriveBackupForRestore);
   $("backupDriveRestore").addEventListener("click", restoreDriveBackup);
   $("backupDriveSelect").addEventListener("change", () => {
     DRIVE_RESTORE_FILE = null;
     DRIVE_RESTORE_PREVIEW = null;
     $("backupDriveRestore").disabled = true;
+    $("backupDriveDownload").disabled = !$("backupDriveSelect").value;
     $("driveRestorePreview").replaceChildren();
   });
   $("backupFile").addEventListener("change", () => {
@@ -98,7 +106,11 @@ function renderBackupRestore(){
   $("backupRestorePass").addEventListener("input", () => {
     RESTORE_PREVIEW = null;
     $("backupRestore").disabled = true;
+    DRIVE_RESTORE_FILE = null;
+    DRIVE_RESTORE_PREVIEW = null;
+    $("backupDriveRestore").disabled = true;
     $("backupPreview").replaceChildren();
+    $("driveRestorePreview").replaceChildren();
   });
   $("backupExportPass").addEventListener("input", () => { $("backupExcelMessage").textContent = ""; });
   $("backupExportConfirm").addEventListener("input", () => { $("backupExcelMessage").textContent = ""; });
@@ -638,6 +650,7 @@ async function createDriveBackup(options = {}){
     backupDriveStatus("Connecting to Google Drive…");
     const root = await getDriveBackupRoot(true);
     if(!root) throw new Error("Could not create the Google Drive backup folder.");
+    setDriveBackupFolderLink(root);
     const backupDate = todayLocal();
     const backupName = `Kothari Hyundai Backup ${backupDate}`;
     const backupFolder = await getOrCreateDriveFolder(backupName, root.id);
@@ -711,6 +724,7 @@ async function listDriveBackups(){
       driveRestoreStatus("No Kothari Hyundai backups were found in Google Drive.", "error");
       return;
     }
+    setDriveBackupFolderLink(root);
     const folders = await listDriveChildren(root.id, DRIVE_FOLDER_MIME);
     for(const folder of folders){
       const files = await listDriveChildren(folder.id, XLSX_MIME);
@@ -723,11 +737,69 @@ async function listDriveBackups(){
       const modified = item.folder.modifiedTime ? new Date(item.folder.modifiedTime).toLocaleString() : "";
       select.add(new Option(`${item.folder.name}${modified ? ` — ${modified}` : ""}`, item.folder.id));
     }
+    $("backupDriveDownload").disabled = true;
     driveRestoreStatus(sorted.length ? `${sorted.length} restorable Google Drive backup(s) found.` : "No complete Kothari Hyundai backups were found in Google Drive.", sorted.length ? "success" : "error");
   } catch(err){
     driveRestoreStatus("Could not list Google Drive backups: " + (err.message || err), "error");
   } finally {
     btn.disabled = false;
+  }
+}
+function setDriveBackupFolderLink(folder){
+  if(!folder?.id) return;
+  const link = $("openGoogleDrive");
+  if(link) link.href = `https://drive.google.com/drive/folders/${encodeURIComponent(folder.id)}`;
+}
+async function downloadSelectedDriveBackup(){
+  if(!state.isAdmin) return toast("Only Admin can download backups.","error");
+  const backup = DRIVE_BACKUP_FOLDERS.get($("backupDriveSelect").value);
+  if(!backup) return driveRestoreStatus("Find and select a Google Drive backup first.", "error");
+  const button = $("backupDriveDownload");
+  button.disabled = true;
+  try {
+    driveRestoreStatus(`Downloading ${backup.master.name}…`);
+    const blob = await downloadDriveWorkbook(backup.master.id);
+    const url = URL.createObjectURL(blob), anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = backup.master.name;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    driveRestoreStatus(`Backup downloaded: ${backup.master.name}.`, "success");
+  } catch(err){
+    driveRestoreStatus("Could not download Google Drive backup: " + (err.message || err), "error");
+  } finally {
+    button.disabled = !$("backupDriveSelect").value;
+  }
+}
+async function uploadSelectedBackupFile(){
+  if(!state.isAdmin) return toast("Only Admin can upload backups.","error");
+  const input = $("backupDriveFile"), file = input.files?.[0], button = $("backupDriveUploadFile");
+  if(!file) return driveBackupStatus("Select an Excel backup workbook to upload.", "error");
+  if(!window.XLSX) return driveBackupStatus("Excel library did not load. Check your internet connection.", "error");
+  button.disabled = true;
+  try {
+    driveBackupStatus("Validating selected Excel backup…");
+    await parseBackupWorkbook(file, $("backupRestorePass").value);
+    const workbook = XLSX.read(await file.arrayBuffer(), {type:"array", cellDates:false});
+    const root = await getDriveBackupRoot(true);
+    if(!root) throw new Error("Could not open the Google Drive backup folder.");
+    setDriveBackupFolderLink(root);
+    const stamp = new Date().toTimeString().slice(0,8).replace(/:/g,"-");
+    const backupFolder = await createDriveFolder(`Kothari Hyundai Backup Upload ${todayLocal()} ${stamp}`, root.id);
+    const name = `kothari-hyundai-backup-${todayLocal()}-uploaded-${stamp}.xlsx`;
+    await uploadDriveWorkbook(backupFolder.id, name, workbook);
+    logAudit("UPLOAD_BACKUP","administration","backup",null,{file_name:file.name,googleDrive:true});
+    driveBackupStatus(`Backup uploaded to Google Drive: ${backupFolder.name}.`, "success");
+    toast("Backup uploaded to Google Drive.", "success");
+    input.value = "";
+    await listDriveBackups();
+  } catch(err){
+    driveBackupStatus("Google Drive upload failed: " + (err.message || err), "error");
+    toast("Google Drive upload failed: " + (err.message || err), "error");
+  } finally {
+    button.disabled = !input.files?.[0];
   }
 }
 async function loadDriveBackupForRestore(){
@@ -746,7 +818,7 @@ async function loadDriveBackupForRestore(){
     const blob = await downloadDriveWorkbook(backup.master.id);
     const file = new File([blob], backup.master.name, {type:XLSX_MIME});
     driveRestoreStatus("Validating Google Drive backup…");
-    const data = await parseBackupWorkbook(file, "");
+    const data = await parseBackupWorkbook(file, $("backupRestorePass").value);
     DRIVE_RESTORE_FILE = file;
     DRIVE_RESTORE_PREVIEW = {file, backupId:$("backupDriveSelect").value, counts:data.map(x => [x.table.name, x.rows.length])};
     const total = data.reduce((n,x) => n + x.rows.length, 0);
@@ -868,7 +940,7 @@ async function restoreDriveBackup(){
   const button = $("backupDriveRestore");
   if(!preview || preview.file !== DRIVE_RESTORE_FILE || preview.backupId !== backupId) return driveRestoreStatus("Find and validate the selected Google Drive backup before restoring.", "error");
   try {
-    const data = await parseBackupWorkbook(preview.file, "");
+    const data = await parseBackupWorkbook(preview.file, $("backupRestorePass").value);
     await restoreBackupRows(data, button, driveRestoreStatus, $("driveRestorePreview"), "Google Drive");
   } catch(err){
     driveRestoreStatus("Google Drive restore failed: " + (err.message || err), "error");

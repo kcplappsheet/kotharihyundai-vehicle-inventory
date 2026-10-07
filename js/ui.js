@@ -252,6 +252,11 @@ async function loadGlobalVinSuggestions(){
 document.addEventListener("DOMContentLoaded", () => {
   const form = $("globalSearch"), input = $("globalVin"), box = $("globalVinSuggestions");
   form?.addEventListener("submit", globalVinSearch);
+  $("globalScan")?.addEventListener("click", () => openScanner(vin => {
+    input.value = vin;
+    if(box) box.hidden = true;
+    globalVinSearch();
+  }));
   input?.addEventListener("input", () => { clearTimeout(globalSuggestionTimer); globalSuggestionTimer = setTimeout(loadGlobalVinSuggestions, 250); });
   document.addEventListener("click", event => { if(box && !event.target.closest("#globalSearch")) box.hidden = true; });
 });
